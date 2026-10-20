@@ -1,0 +1,37 @@
+HOneClick third-party notices
+
+KernelSU (including ksud and KernelSU Manager)
+Tested version: v3.3.1 / manager version code 32680
+https://github.com/tiann/KernelSU
+Licensed under GNU General Public License v3.0.
+The bundled kernel module is modified and declares license=GPL.
+Corresponding-source and redistribution review is required.
+
+Shizuku (including client JARs and Shizuku Manager)
+Tested version: 13.6.0.r1086.2650830c
+https://github.com/RikkaApps/Shizuku
+Licensed under the Apache License, Version 2.0.
+
+CVE-2026-64560 research code
+https://github.com/Feng1586/CVE-2026-64560-public
+Baseline commit 63b4f2b7b497d835c7cb1a43ff8851cd0d7a9ac8
+Copyright (c) 2026 GhostLock/CVE-2026-64560 research contributors
+Licensed under the MIT License. See assets/licenses/MIT-CVE-2026-64560.txt.
+Honor-specific modifications Copyright (c) 2026 superboyyy.
+
+AndroidLiquidGlass / Backdrop 2.0.1
+Copyright Kyant0 and contributors
+https://github.com/Kyant0/AndroidLiquidGlass
+Licensed under the Apache License, Version 2.0.
+
+Jetpack Compose and AndroidX
+Copyright The Android Open Source Project
+Licensed under the Apache License, Version 2.0.
+
+Kotlin
+Copyright JetBrains s.r.o.
+Licensed under the Apache License, Version 2.0.
+
+Full GPL-3.0 and Apache-2.0 texts are bundled under assets/licenses/.
+Per-asset provenance is included in the project source repository under
+THIRD_PARTY_NOTICES.md and ASSET_PROVENANCE.md.

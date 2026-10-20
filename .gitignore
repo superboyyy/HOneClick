@@ -1,0 +1,25 @@
+# IDE and local SDK configuration
+.idea/
+*.iml
+local.properties
+
+# Gradle and Kotlin caches
+.gradle/
+.kotlin/
+build/
+build-v*/
+
+# Local build and release artifacts
+outputs/
+captures/
+*.hprof
+
+# Signing material must never be committed
+*.jks
+*.keystore
+*.p12
+keystore.properties
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
