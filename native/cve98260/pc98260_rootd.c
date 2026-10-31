@@ -90,6 +90,9 @@ int pc98260_run_rootd(void)
 		int client = accept4(listener, NULL, NULL, SOCK_CLOEXEC);
 		if (client < 0) {
 			if (errno == EINTR) continue;
+			dprintf(STDERR_FILENO,
+				"[rootd] accept failed errno=%d (%s)\n",
+				errno, strerror(errno));
 			break;
 		}
 		struct ucred peer;
@@ -101,5 +104,6 @@ int pc98260_run_rootd(void)
 		close(client);
 	}
 	close(listener);
+	dprintf(STDERR_FILENO, "[rootd] stopped\n");
 	return 1;
 }
