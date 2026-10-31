@@ -1,17 +1,19 @@
 # HOneClick
 
-HOneClick 是一个面向特定荣耀设备的实验性临时 root 与安全研究工具。它通过 Shizuku 执行本地漏洞验证流程，加载与当前内核匹配的 KernelSU 模块，并初始化 KernelSU 用户态环境。
+HOneClick 是一个面向荣耀设备的实验性临时 root 与安全研究工具。它通过 Shizuku 执行本地漏洞链，按实际 `uname -r` 自动选择，并允许在未锁定内核上手动切换后端，加载匹配的 KernelSU 模块，并初始化 KernelSU 用户态环境。
 
-English summary: HOneClick is an unofficial, device-specific temporary-root research tool for Honor Magic9 Pro Max. It is not affiliated with Honor, KernelSU, or Shizuku.
+English summary: HOneClick is an unofficial Honor temporary-root research tool with kernel-driven exploit routing. It is not affiliated with Honor, KernelSU, or Shizuku.
 
 > [!WARNING]
 > 本项目会修改运行中的内核状态并加载内核模块。使用本应用可能存在风险，请自行评估并承担相应风险。请勿用于非法用途。仅在设备所有者明确同意的个人测试设备上使用。
 
 ## 当前状态
 
-- 设备：Honor Magic9 Pro Max
-- 型号白名单：`WKL-AN20`、`WKL-AN80`
-- 已验证内核：`6.18.21-android17-5-g928d1bb4f1d7-abogki542339678-4k`
+- 已验证内核 A：`6.18.21-android17-5-g928d1bb4f1d7-abogki542339678-4k`（64560 / 98260-109）
+- 已验证内核 B：`6.18.21-android17-5-ge186062ea75f-abogki564062290-4k`（98260-115）
+- 默认路由：所有设备默认 CVE-2026-98260
+- 98260 引擎按实际 `uname -r` 选择 109 或 115 内核配置
+- 精确内核锁定：实际 `uname -r` 与内核 B 完全匹配时禁用 64560；其他内核可手动切换
 - root 类型：当前启动有效的临时 root，重启后失效
 - 不包含：bootloader 解锁、刷写分区、永久 root
 
@@ -19,15 +21,17 @@ English summary: HOneClick is an unofficial, device-specific temporary-root rese
 
 1. 安装并连接 Shizuku。
 2. 安装 KernelSU 管理器。
-3. 验证设备型号和内核指纹。
-4. 执行设备专用漏洞验证链。
-5. 加载与当前内核匹配的 KernelSU 模块。
-6. 初始化 KernelSU 用户态组件。
-7. 通过 KernelSU 管理器管理应用授权和模块。
+3. 读取设备与完整内核指纹，不再限制设备型号。
+4. 所有设备默认选择 CVE-2026-98260；实际 `uname -r` 精确匹配内核 B 时禁用 64560。
+5. 98260 根据实际 `uname -r` 自动加载匹配的地址、KASLR 泄漏点与 KernelSU 符号表。
+6. 手机端可直接导入 `boot.img`，自动解析 kallsyms/BTF、校验漏洞路径并生成本地内核配置。
+7. 对 98260 先执行只读权限预检，再启动内存回收链。
+6. 加载与当前内核匹配的 KernelSU 模块。
+7. 初始化 KernelSU 用户态组件并通过管理器授权应用和模块。
 
 ## 使用
 
-1. 确认设备和内核版本符合支持范围。
+1. 连接 Shizuku 后读取实际 `uname -r`；默认使用 `98260`，精确匹配时自动锁定。
 2. 打开无线调试和 Shizuku 服务。
 3. 安装并打开 HOneClick。
 4. 点击 `01 连接 Shizuku` 并在其中完成授权。
@@ -37,7 +41,7 @@ English summary: HOneClick is an unofficial, device-specific temporary-root rese
 
 运行大概需要 10-30 分钟，在某一个步骤如超过 5 分钟，重启手机再来一遍兴许是更好的选择。
 
-不要在未知固件、未知内核或其他 Android 设备上直接运行。漏洞流程可能触发系统重启、服务异常或数据损失，请确保有风险承受能力。
+设备型号不再作为硬拦截条件，但漏洞地址仍与内核版本绑定。手动在未知内核选择利用链可能导致失败、重启或数据损失；98260 预检失败时应立即停止，不要绕过。
 
 ## 构建
 
@@ -68,6 +72,30 @@ export HONOR_KEY_PASSWORD='...'
 ./gradlew assembleRelease
 ```
 
+### 手机端导入 boot.img
+
+在“设备信息 → 漏洞利用”区域点击“导入 boot.img 生成配置”，通过系统文件选择器选取完整 `boot.img`。应用会：
+
+1. 解析 Android boot image 并提取 kernel
+2. 解析 kallsyms、BTF 和完整版本字符串
+3. 检查 `begin_new_exec` 中的漏洞调用顺序
+4. 生成本地配置、符号表和 KernelSU vermagic
+
+当前手机端生成器支持原始 AArch64 Image 和 gzip 压缩内核，并要求目标为 6.18 KMI。
+
+### 电脑端自动生成内核配置
+
+从原始 AArch64 内核 `Image` 自动解析 kallsyms、BTF、结构偏移和漏洞调用顺序，并生成配置与符号表：
+
+```bash
+python3 scripts/generate-kernel-profile.py kernel.bin \\
+  --symbols-out assets/syms-new.txt \\
+  --module-asset ksu-template-new.ko \\
+  --update-profiles assets/exploit-profiles.json
+```
+
+生成器会验证 `begin_new_exec` 中 POSIX timer 清理仍位于可失败 exec 步骤之后；不满足时拒绝生成可用配置。
+
 ### 资产校验
 
 ```bash
@@ -79,6 +107,9 @@ export HONOR_KEY_PASSWORD='...'
 ```bash
 export ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/28.2.13676358"
 ./scripts/build-ksu-grant.sh
+./scripts/build-legacy-helpers.sh
+./scripts/build-cve98260.sh
+./scripts/build-ksu-template-115.sh
 ```
 
 ## 隐私
@@ -89,9 +120,8 @@ HOneClick 主应用清单未申请 `INTERNET` 权限，不包含遥测、广告�
 
 ## 已知限制
 
-- 仅验证当前列出的设备型号和内核指纹。
+- 98260 回收失败后不能立即重试；应用会保留已停放的 UAF 进程，必须重启设备。
 - root 只在本次启动中有效，重启后需要重新执行。
-- KernelSU 授权按应用分别管理，普通 ADB shell 不自动获得 root。
 - 不同系统版本、内核配置或分区布局可能使流程失效。
 - 当前没有永久化、bootloader 解锁或自动开机提权能力。
 
@@ -112,6 +142,7 @@ HOneClick 主应用清单未申请 `INTERNET` 权限，不包含遥测、广告�
 HOneClick 的实现和验证离不开以下公开研究与开源项目：
 
 - [Feng1586/CVE-2026-64560-public](https://github.com/Feng1586/CVE-2026-64560-public) 及 GhostLock/CVE-2026-64560 research contributors：公开的漏洞研究、零写原语和两阶段 cred 修改代码，是本项目 `t64560_v36` 与 Honor 适配版本的重要基础。
+- [sganggs/CVE-2026-98260-BRM-AN00](https://github.com/sganggs/CVE-2026-98260-BRM-AN00)：提供 CVE-2026-98260 触发、timer slab 回收和临时 root 研究实现。
 - [KernelSU](https://github.com/tiann/KernelSU) 作者 weishu 及贡献者：提供 KernelSU 内核模块、`ksud` 和用户态管理能力。
 - [Shizuku](https://github.com/RikkaApps/Shizuku) 作者 Rikka 及贡献者：提供无需重复启动应用进程的特权 shell 通道。
 - [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 作者 Kyant0 及贡献者：提供液态玻璃视觉组件。
@@ -124,4 +155,4 @@ HOneClick 的实现和验证离不开以下公开研究与开源项目：
 
 第三方组件不由本项目重新授权。KernelSU、Shizuku、AndroidLiquidGlass、AndroidX、Compose 和 Kotlin 分别遵循其上游许可证。
 
-`t64560_v36.c` 和 `t64560_v42_honor.c` 基于 `CVE-2026-64560-public` 的 MIT 许可研究代码；上游版权和修改说明完整保留在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [LICENSES/MIT-CVE-2026-64560.txt](LICENSES/MIT-CVE-2026-64560.txt)。
+`t64560_v36.c` 和 `t64560_v42_honor.c` 基于 `CVE-2026-64560-public` 的 MIT 许可研究代码；上游版权和修改说明完整保留在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [LICENSES/MIT-CVE-2026-64560.txt](LICENSES/MIT-CVE-2026-64560.txt)。CVE-2026-98260 代码来自公开研究仓库，上游未提供明确的开源许可证；不得将这部分重新表述为 MIT 或用于未经审查的公开二进制分发。

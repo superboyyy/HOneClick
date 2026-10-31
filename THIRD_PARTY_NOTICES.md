@@ -33,6 +33,15 @@ This source repository does not yet include a complete, matching KernelSU source
 
 `t64560_v36.c` is retained from the upstream research code. `t64560_v42_honor.c` contains device-specific modifications by HOneClick, including retry tuning, phase completion markers, target-process module loading, `adb_root` feature forcing, and self-target test support.
 
+## CVE-2026-98260 research code
+
+- Upstream: <https://github.com/sganggs/CVE-2026-98260-BRM-AN00>
+- Baseline: main at `8bb92a66a3d0`
+- Upstream files: `plant/uaf_plant.c`, `plant/pc98260_rootd.c`, `plant/pc98260_su.c`, `plant/slide_probe.c`
+- License: no explicit upstream license was found at the audited revision
+
+HOneClick adds a preflight mode, a fixed socket path, HOneClick integration and a 115 KernelSU module loader. These files are not MIT-licensed HOneClick originals and must not be redistributed as such without permission from the upstream author.
+
 ## AndroidLiquidGlass / Backdrop
 
 - Component: `io.github.kyant0:backdrop:2.0.1`
@@ -49,6 +58,6 @@ This source repository does not yet include a complete, matching KernelSU source
 
 ## Honor firmware-derived data
 
-`assets/syms.txt` is derived from kernel symbol information associated with the tested Honor firmware. No open-source license has been established for that vendor-derived data. It must not be represented as MIT-licensed project source.
+`assets/syms.txt` and `assets/syms-115.txt` are derived from kernel symbol information associated with the tested Honor firmware. No open-source license has been established for that vendor-derived data. They must not be represented as MIT-licensed project source.
 
 See [ASSET_PROVENANCE.md](ASSET_PROVENANCE.md) for the per-file review status.

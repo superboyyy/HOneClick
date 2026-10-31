@@ -14,7 +14,7 @@
 - Add the exact expected behavior when adding or changing a log marker.
 - Treat root-file permissions, process identity, and race timing as security-sensitive code.
 - Prefer clear failure messages over silent retries.
-- Do not weaken the model and kernel whitelist without an explicit compatibility profile and test evidence.
+- Keep device and kernel compatibility profiles explicit; do not claim a new kernel/device is supported without test evidence.
 
 ## License
 

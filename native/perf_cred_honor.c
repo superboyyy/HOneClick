@@ -26,6 +26,17 @@
 #define PERF_PAGES 8
 #define CAP_TRACEPOINT_ID 681
 
+static const char *honor_work_dir(void)
+{
+    const char *dir = getenv("HONOR_WORK");
+    return dir && *dir ? dir : "/data/local/tmp/honor";
+}
+
+static void honor_work_path(char *out, size_t size, const char *name)
+{
+    snprintf(out, size, "%s/%s", honor_work_dir(), name);
+}
+
 static int perf_event_open_one(struct perf_event_attr *attr, pid_t pid,
                                int cpu, int group_fd, unsigned long flags)
 {
@@ -211,7 +222,9 @@ static uint64_t read_cap_effective(void)
 
 static int phase2_done(void)
 {
-    return access("/data/local/tmp/honor/PHASE2_DONE", F_OK) == 0;
+    char path[512];
+    honor_work_path(path, sizeof(path), "PHASE2_DONE");
+    return access(path, F_OK) == 0;
 }
 
 static int load_kernel_module(void)
@@ -220,7 +233,9 @@ static int load_kernel_module(void)
         if (module_is_loaded())
             return 0;
         uint64_t cap_eff = read_cap_effective();
-        int fd = open("/data/local/tmp/honor/ksu-patched.ko", O_RDONLY);
+        char module_path[512];
+        honor_work_path(module_path, sizeof(module_path), "ksu-patched.ko");
+        int fd = open(module_path, O_RDONLY);
         if (fd < 0) {
             printf("TARGET_FINIT_MODULE open errno=%d(%s)\n",
                    errno, strerror(errno));

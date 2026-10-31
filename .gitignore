@@ -8,6 +8,8 @@ local.properties
 .kotlin/
 build/
 build-v*/
+__pycache__/
+*.py[cod]
 
 # Local build and release artifacts
 outputs/

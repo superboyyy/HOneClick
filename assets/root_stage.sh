@@ -1,6 +1,6 @@
 #!/system/bin/sh
 set -eu
-D=/data/local/tmp/honor
+D="${1:-${HONOR_WORK:-/data/local/tmp/honor}}"
 mkdir -p /data/adb/ksu/bin /data/adb/modules
 cp "$D/ksud" /data/adb/ksud
 chmod 755 /data/adb/ksud

@@ -15,7 +15,7 @@
         android:theme="@style/AppTheme">
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="com.aiden.honoroneclick.shizuku"
+            android:authorities="${applicationId}.shizuku"
             android:enabled="true"
             android:exported="true"
             android:multiprocess="false" />

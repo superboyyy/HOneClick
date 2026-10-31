@@ -15,7 +15,8 @@ static int compare_u64(const void *a, const void *b) {
 }
 
 int main(int argc, char **argv) {
-    const char *dir = argc > 1 ? argv[1] : "/data/local/tmp/honor";
+    const char *dir = argc > 1 ? argv[1] : getenv("HONOR_WORK");
+    if (!dir || !*dir) dir = "/data/local/tmp/honor";
     const struct anchor anchors[] = {
         {"worker_thread", 0xffffffc0801352b4ULL},
         {"rcu_gp_fqs_loop", 0xffffffc080295bc0ULL},

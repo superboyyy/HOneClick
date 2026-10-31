@@ -12,6 +12,12 @@ Tested version: 13.6.0.r1086.2650830c
 https://github.com/RikkaApps/Shizuku
 Licensed under the Apache License, Version 2.0.
 
+CVE-2026-98260 research code
+https://github.com/sganggs/CVE-2026-98260-BRM-AN00
+Baseline main at 8bb92a66a3d0
+No explicit upstream license was found at the audited revision.
+Personal research use only; public redistribution requires upstream permission.
+
 CVE-2026-64560 research code
 https://github.com/Feng1586/CVE-2026-64560-public
 Baseline commit 63b4f2b7b497d835c7cb1a43ff8851cd0d7a9ac8

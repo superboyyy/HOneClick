@@ -19,11 +19,11 @@ android {
     buildToolsVersion = "37.0.0"
 
     defaultConfig {
-        applicationId = "com.aiden.honoroneclick"
+        applicationId = "com.aiden.honeclick"
         minSdk = 29
         targetSdk = 35
-        versionCode = 40
-        versionName = "1.0"
+        versionCode = 57
+        versionName = "2.0 Beta"
     }
 
     compileOptions {

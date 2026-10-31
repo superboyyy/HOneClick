@@ -2,7 +2,7 @@
 
 ## Supported scope
 
-Security reports are accepted for the current HOneClick source and the exact device/kernel combinations documented in [README.md](README.md).
+Security reports are accepted for the current HOneClick source and the exact kernel/profile combinations documented in [README.md](README.md).
 
 This project performs privileged kernel operations. Reports about unexpected reboot, memory corruption, privilege persistence, authorization bypass, unsafe file permissions, command injection, or unintended data access are especially relevant.
 

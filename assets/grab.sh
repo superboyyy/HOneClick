@@ -1,5 +1,5 @@
 #!/system/bin/sh
-D=/data/local/tmp/honor
+D="${HONOR_WORK:-/data/local/tmp/honor}"
 cd "$D" || exit 1
 rm -f bl_*.bin bl_text.txt
 echo 0 > /sys/kernel/tracing/trace 2>/dev/null

