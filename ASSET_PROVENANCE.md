@@ -7,7 +7,7 @@ This file records the known origin and redistribution status of embedded binarie
 | `assets/KernelSUManager.apk` | KernelSU `v3.3.1`, version code `32680` | Upstream GPL-3.0; exact artifact provenance still requires verification | Blocked pending corresponding-source and signature review |
 | `assets/ShizukuManager.apk` | Shizuku `13.6.0.r1086.2650830c` | Apache-2.0 | Verify official artifact signature before public redistribution |
 | `assets/ksud` | KernelSU `v3.3.1` userspace | GPL-3.0 | Provide corresponding source/build information |
-| `assets/ksu-template.ko` | KernelSU LKM modified for the 109 Honor kernel | Module metadata declares `GPL`; matching source not in this tree | Release blocker |
+| `assets/ksu-template.ko` | 109 Honor KernelSU LKM with the reproducible bootstrap-credential patch in `patches/patch_ksu_bootstrap_creds_v331.py`; input/output checksums and source equivalent are documented in `docs/SU_ACCESS_FIX.md` | Module metadata declares `GPL`; full matching module source is still not in this tree | Existing release blocker remains |
 | `assets/ksu-template-115.ko` | `ksu-template.ko` with 115 vermagic | Module metadata declares `GPL`; matching source not in this tree | Release blocker |
 | `libs/shizuku-*.jar` | Shizuku client libraries | Apache-2.0 | Include notice and license |
 | `assets/syms.txt` | Derived from 109 Honor firmware kernel symbol data | No redistribution license established | Release blocker |
