@@ -1,0 +1,26 @@
+Subject: [PATCH] Initialize cached KernelSU credentials from init_task
+
+HOneClick loads the LKM from a shell helper whose filesystem IDs and
+capabilities have been changed without first normalizing all user IDs.
+prepare_creds() copies that mixed identity into the long-lived ksu_cred.
+faccessat later restores the cached real IDs and loses access to /data/adb.
+Allocate a separate credential copied from init_task instead. The existing
+setup_ksu_cred() still applies the KernelSU SELinux domain to the new copy.
+
+This documents the source equivalent of patch_ksu_bootstrap_creds_v331.py.
+HOneClick does not include the corresponding full module source/build tree.
+
+diff --git a/kernel/core/init.c b/kernel/core/init.c
+--- a/kernel/core/init.c
++++ b/kernel/core/init.c
+@@ -131,5 +131,9 @@
+-    ksu_cred = prepare_creds();
++    /* Late-load callers may have mixed real/filesystem IDs. Cache an
++     * independent, complete root credential instead of inheriting the
++     * bootstrap process's partially modified credential.
++     */
++    ksu_cred = prepare_kernel_cred(&init_task);
+     if (!ksu_cred) {
+         pr_err("prepare cred failed!\n");
+         return -ENOSYS;
+     }

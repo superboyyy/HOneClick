@@ -1198,6 +1198,13 @@ public final class MainActivity extends ComponentActivity implements UiActions {
             log("root identity: " + rootIdentity.replace("\n", " | "));
             if (!rootIdentity.contains("uid=0(root)") || !rootIdentity.contains("context=u:r:ksu:s0"))
                 throw new IllegalStateException("KernelSU root 身份验收失败");
+            // Check from a fresh shell without env/timeout, which bypass
+            // mksh's access() preflight and can hide broken cached credentials.
+            String directSu = shell("/system/bin/su -c id").trim();
+            log("direct su identity: " + directSu.replace("\n", " | "));
+            if (!directSu.contains("uid=0(root)") || !directSu.contains("context=u:r:ksu:s0"))
+                throw new IllegalStateException(
+                        "普通 shell su 验收失败；请重启设备后重新提权，避免复用旧 KernelSU 模块");
             return grant;
     }
 
