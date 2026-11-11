@@ -11,9 +11,10 @@ English summary: HOneClick is an unofficial Honor temporary-root research tool w
 
 - 已验证内核 A：`6.18.21-android17-5-g928d1bb4f1d7-abogki542339678-4k`（64560 / 98260-109）
 - 已验证内核 B：`6.18.21-android17-5-ge186062ea75f-abogki564062290-4k`（98260-115）
+- 已接入内核 C：`6.18.21-android17-5-gfee2325de189-abogki572422516-4k`（98260-117；镜像/BTF/符号校验通过，待设备实测）
 - 默认路由：所有设备默认 CVE-2026-98260
-- 98260 引擎按实际 `uname -r` 选择 109 或 115 内核配置
-- 精确内核锁定：实际 `uname -r` 与内核 B 完全匹配时禁用 64560；其他内核可手动切换
+- 98260 引擎按实际 `uname -r` 选择 109、115 或 117 内核配置
+- 精确内核锁定：实际 `uname -r` 与内核 B/C 完全匹配时禁用 64560；其他内核可手动切换
 - root 类型：当前启动有效的临时 root，重启后失效
 - 不包含：bootloader 解锁、刷写分区、永久 root
 
@@ -22,12 +23,12 @@ English summary: HOneClick is an unofficial Honor temporary-root research tool w
 1. 安装并连接 Shizuku。
 2. 安装 KernelSU 管理器。
 3. 读取设备与完整内核指纹，不再限制设备型号。
-4. 所有设备默认选择 CVE-2026-98260；实际 `uname -r` 精确匹配内核 B 时禁用 64560。
+4. 所有设备默认选择 CVE-2026-98260；实际 `uname -r` 精确匹配内核 B/C 时禁用 64560。
 5. 98260 根据实际 `uname -r` 自动加载匹配的地址、KASLR 泄漏点与 KernelSU 符号表。
 6. 手机端可直接导入 `boot.img`，自动解析 kallsyms/BTF、校验漏洞路径并生成本地内核配置。
-7. 对 98260 先执行只读权限预检，再启动内存回收链。
-6. 加载与当前内核匹配的 KernelSU 模块。
-7. 初始化 KernelSU 用户态组件并通过管理器授权应用和模块。
+7. 98260 正式运行采用与命令行一致的静默时序，跳过预检；需要诊断时单独执行 `--preflight`。
+8. 加载与当前内核匹配的 KernelSU 模块。
+9. 初始化 KernelSU 用户态组件并通过管理器授权应用和模块。
 
 ## 使用
 
@@ -41,7 +42,7 @@ English summary: HOneClick is an unofficial Honor temporary-root research tool w
 
 运行大概需要 10-30 分钟，在某一个步骤如超过 5 分钟，重启手机再来一遍兴许是更好的选择。
 
-设备型号不再作为硬拦截条件，但漏洞地址仍与内核版本绑定。手动在未知内核选择利用链可能导致失败、重启或数据损失；98260 预检失败时应立即停止，不要绕过。
+设备型号不再作为硬拦截条件，但漏洞地址仍与内核版本绑定。手动在未知内核选择利用链可能导致失败、重启或数据损失；使用 `--preflight` 诊断失败时应立即停止，不要绕过。
 
 ## 构建
 
@@ -110,6 +111,7 @@ export ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/28.2.13676358"
 ./scripts/build-legacy-helpers.sh
 ./scripts/build-cve98260.sh
 ./scripts/build-ksu-template-115.sh
+./scripts/build-ksu-template-117.sh
 ```
 
 ## 隐私

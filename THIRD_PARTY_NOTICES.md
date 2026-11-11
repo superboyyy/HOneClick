@@ -40,7 +40,7 @@ This source repository does not yet include a complete, matching KernelSU source
 - Upstream files: `plant/uaf_plant.c`, `plant/pc98260_rootd.c`, `plant/pc98260_su.c`, `plant/slide_probe.c`
 - License: no explicit upstream license was found at the audited revision
 
-HOneClick adds a preflight mode, a fixed socket path, HOneClick integration and a 115 KernelSU module loader. These files are not MIT-licensed HOneClick originals and must not be redistributed as such without permission from the upstream author.
+HOneClick adds a preflight mode, a fixed socket path, HOneClick integration and a 115/117 KernelSU module loader. These files are not MIT-licensed HOneClick originals and must not be redistributed as such without permission from the upstream author.
 
 ## AndroidLiquidGlass / Backdrop
 
@@ -58,6 +58,6 @@ HOneClick adds a preflight mode, a fixed socket path, HOneClick integration and 
 
 ## Honor firmware-derived data
 
-`assets/syms.txt` and `assets/syms-115.txt` are derived from kernel symbol information associated with the tested Honor firmware. No open-source license has been established for that vendor-derived data. They must not be represented as MIT-licensed project source.
+`assets/syms.txt`, `assets/syms-115.txt`, and `assets/syms-117.txt` are derived from kernel symbol information associated with the tested Honor firmware. No open-source license has been established for that vendor-derived data. They must not be represented as MIT-licensed project source.
 
 See [ASSET_PROVENANCE.md](ASSET_PROVENANCE.md) for the per-file review status.

@@ -15,7 +15,7 @@
 
 - [ ] Confirm that the KernelSU Manager APK and `ksud` came from official upstream releases and record their signatures.
 - [ ] Provide complete corresponding source and reproducible build information for the modified KernelSU LKM and other GPL components distributed in the APK.
-- [ ] Confirm whether Honor firmware-derived `syms.txt` and `syms-115.txt` may be redistributed, or replace them with a user-side generation process.
+- [ ] Confirm whether Honor firmware-derived `syms.txt`, `syms-115.txt`, and `syms-117.txt` may be redistributed, or replace them with a user-side generation process.
 - [ ] Obtain a clear redistribution license from the CVE-2026-98260 upstream author or keep the APK personal-only.
 - [ ] Add reproducible build scripts and verify every remaining generated native helper.
 

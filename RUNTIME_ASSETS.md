@@ -11,8 +11,10 @@ The runtime files are located under `assets/`:
 | `ksud` | Included; KernelSU GPL-3.0 obligations apply |
 | `ksu-template.ko` | Included; modified KernelSU module for the 64560 backend, corresponding-source review required |
 | `ksu-template-115.ko` | Included; same KernelSU module with the 115 vermagic, corresponding-source review required |
+| `ksu-template-117.ko` | Included; same KernelSU module with the 117 vermagic, corresponding-source review required |
 | `syms.txt` | Included; 109 firmware-derived symbols, redistribution rights unresolved |
 | `syms-115.txt` | Included; 115 firmware-derived symbols, redistribution rights unresolved |
+| `syms-117.txt` | Included; 117 firmware-derived symbols, redistribution rights unresolved |
 | `cve98260_plant` | Prebuilt helper; source included under `native/cve98260/` |
 | `cve98260_slide` | Prebuilt KASLR helper; source included |
 | `cve98260_su` | Prebuilt temporary-root client; source included |
@@ -28,8 +30,9 @@ Keep the existing shell scripts and license files in `assets/`.
 
 `cve98260_*` can be rebuilt with `scripts/build-cve98260.sh`. The legacy
 `t64560_*`, `perf_cred_honor`, `kaslr_slide`, and `forker` helpers can be rebuilt
-with `scripts/build-legacy-helpers.sh`. The 115 module metadata can be regenerated
-with `scripts/build-ksu-template-115.sh`.
+with `scripts/build-legacy-helpers.sh`. The 115 and 117 module metadata can be
+regenerated with `scripts/build-ksu-template-115.sh` and
+`scripts/build-ksu-template-117.sh`.
 
 Runtime helpers honor `HONOR_WORK`, allowing each root attempt to use a fresh
 `/data/local/tmp/honor-run-*` directory instead of a stale fixed directory.

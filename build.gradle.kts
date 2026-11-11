@@ -22,8 +22,8 @@ android {
         applicationId = "com.aiden.honeclick"
         minSdk = 29
         targetSdk = 35
-        versionCode = 58
-        versionName = "2.0 Beta2"
+        versionCode = 63
+        versionName = "2.0 Beta 6"
     }
 
     compileOptions {

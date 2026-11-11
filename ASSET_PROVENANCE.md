@@ -9,9 +9,11 @@ This file records the known origin and redistribution status of embedded binarie
 | `assets/ksud` | KernelSU `v3.3.1` userspace | GPL-3.0 | Provide corresponding source/build information |
 | `assets/ksu-template.ko` | 109 Honor KernelSU LKM with the reproducible bootstrap-credential patch in `patches/patch_ksu_bootstrap_creds_v331.py`; input/output checksums and source equivalent are documented in `docs/SU_ACCESS_FIX.md` | Module metadata declares `GPL`; full matching module source is still not in this tree | Existing release blocker remains |
 | `assets/ksu-template-115.ko` | `ksu-template.ko` with 115 vermagic | Module metadata declares `GPL`; matching source not in this tree | Release blocker |
+| `assets/ksu-template-117.ko` | `ksu-template.ko` with 117 vermagic | Module metadata declares `GPL`; matching source not in this tree | Release blocker |
 | `libs/shizuku-*.jar` | Shizuku client libraries | Apache-2.0 | Include notice and license |
 | `assets/syms.txt` | Derived from 109 Honor firmware kernel symbol data | No redistribution license established | Release blocker |
 | `assets/syms-115.txt` | Derived from 115 Honor firmware kernel symbol data | No redistribution license established | Release blocker |
+| `assets/syms-117.txt` | Derived from 117 Honor firmware kernel symbol data | No redistribution license established | Release blocker |
 | `native/ksu_grant.c`, `assets/ksu_grant` | Project implementation of the KernelSU root-fd bootstrap | Project MIT | Rebuild with `scripts/build-ksu-grant.sh`; output hash verified |
 | `native/forker.c`, `assets/forker` | Project research helper; source present | Project MIT, provenance review recommended | Document build command |
 | `native/perf_cred_honor.c`, `assets/perf_cred_honor` | Project device-specific helper; source present | Project MIT, provenance review recommended | Document build command |

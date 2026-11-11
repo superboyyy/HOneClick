@@ -8,7 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import java.util.Locale
 
-const val APP_VERSION_LABEL = "2.0 Beta2"
+const val APP_VERSION_LABEL = "2.0 Beta 6"
 
 enum class StageStatus {
     RUNNING,
