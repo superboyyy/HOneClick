@@ -11,7 +11,7 @@ English summary: HOneClick is an unofficial Honor temporary-root research tool w
 
 - 已验证内核 A：`6.18.21-android17-5-g928d1bb4f1d7-abogki542339678-4k`（64560 / 98260-109）
 - 已验证内核 B：`6.18.21-android17-5-ge186062ea75f-abogki564062290-4k`（98260-115）
-- 已接入内核 C：`6.18.21-android17-5-gfee2325de189-abogki572422516-4k`（98260-117；镜像/BTF/符号校验通过，待设备实测）
+- 已验证内核 C：`6.18.21-android17-5-gfee2325de189-abogki572422516-4k`（98260-117）
 - 默认路由：所有设备默认 CVE-2026-98260
 - 98260 引擎按实际 `uname -r` 选择 109、115 或 117 内核配置
 - 精确内核锁定：实际 `uname -r` 与内核 B/C 完全匹配时禁用 64560；其他内核可手动切换
