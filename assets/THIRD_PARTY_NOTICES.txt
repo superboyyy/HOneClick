@@ -18,12 +18,11 @@ Baseline main at 8bb92a66a3d0
 No explicit upstream license was found at the audited revision.
 Personal research use only; public redistribution requires upstream permission.
 
-CVE-2026-64560 research code
-https://github.com/Feng1586/CVE-2026-64560-public
-Baseline commit 63b4f2b7b497d835c7cb1a43ff8851cd0d7a9ac8
-Copyright (c) 2026 GhostLock/CVE-2026-64560 research contributors
-Licensed under the MIT License. See assets/licenses/MIT-CVE-2026-64560.txt.
-Honor-specific modifications Copyright (c) 2026 superboyyy.
+CVE-2026-99491 research code
+https://github.com/woshigenm/CVE-2026-99491
+HOneClick 117 port: native/kernel_117_analysis/new-cve-table-2026-11-23/cve99491-port-117/
+Embedded binary: assets/exp117
+No explicit redistribution license was established for this port; personal research use only.
 
 AndroidLiquidGlass / Backdrop 2.0.1
 Copyright Kyant0 and contributors

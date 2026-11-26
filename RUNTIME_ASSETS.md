@@ -9,7 +9,7 @@ The runtime files are located under `assets/`:
 | `KernelSUManager.apk` | Included; official artifact and corresponding-source review required |
 | `ShizukuManager.apk` | Included; Apache-2.0 attribution required |
 | `ksud` | Included; KernelSU GPL-3.0 obligations apply |
-| `ksu-template.ko` | Included; modified KernelSU module for the 64560 backend, corresponding-source review required |
+| `ksu-template.ko` | Included; modified KernelSU module for the 109/98260 backend, corresponding-source review required |
 | `ksu-template-115.ko` | Included; same KernelSU module with the 115 vermagic, corresponding-source review required |
 | `ksu-template-117.ko` | Included; same KernelSU module with the 117 vermagic, corresponding-source review required |
 | `syms.txt` | Included; 109 firmware-derived symbols, redistribution rights unresolved |
@@ -19,20 +19,20 @@ The runtime files are located under `assets/`:
 | `cve98260_slide` | Prebuilt KASLR helper; source included |
 | `cve98260_su` | Prebuilt temporary-root client; source included |
 | `cve98260_module` | Prebuilt `finit_module` helper; source included |
-| `forker` | Prebuilt helper; source included |
-| `perf_cred_honor` | Prebuilt helper; source included |
-| `t64560_v36` | Prebuilt helper; source included with upstream MIT attribution |
-| `t64560_v42` | Prebuilt helper; source included with upstream MIT attribution |
-| `kaslr_slide` | Prebuilt helper; source included |
+| `exp117` | 99491 117 aarch64 exploit binary; source included under `native/kernel_117_analysis/new-cve-table-2026-11-23/cve99491-port-117/src/` |
 | `ksu_grant` | Prebuilt helper; reproducible source and build script included |
+
+The SukiSU APK flavor additionally embeds files from `src/sukisu/assets/`: the
+official SukiSU Ultra manager, SukiSU `ksud`, and three SukiSU LKM templates
+with 109/115/117 vermagic. These files are not part of the KernelSU flavor.
 
 Keep the existing shell scripts and license files in `assets/`.
 
-`cve98260_*` can be rebuilt with `scripts/build-cve98260.sh`. The legacy
-`t64560_*`, `perf_cred_honor`, `kaslr_slide`, and `forker` helpers can be rebuilt
-with `scripts/build-legacy-helpers.sh`. The 115 and 117 module metadata can be
-regenerated with `scripts/build-ksu-template-115.sh` and
-`scripts/build-ksu-template-117.sh`.
+`cve98260_*` can be rebuilt with `scripts/build-cve98260.sh`. The 115 and 117
+module metadata can be regenerated with `scripts/build-ksu-template-115.sh` and
+`scripts/build-ksu-template-117.sh`. The 99491 `exp117` binary is built from
+`native/.../cve99491-port-117/src/exp117.c` with the fixed NDK; see
+`scripts/build-cve99491.sh`.
 
 Runtime helpers honor `HONOR_WORK`, allowing each root attempt to use a fresh
 `/data/local/tmp/honor-run-*` directory instead of a stale fixed directory.

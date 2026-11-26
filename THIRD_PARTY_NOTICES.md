@@ -22,16 +22,16 @@ This source repository does not yet include a complete, matching KernelSU source
 - License: Apache License 2.0
 - License text: [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt)
 
-## CVE-2026-64560 research code
+## CVE-2026-99491 research code
 
-- Upstream: <https://github.com/Feng1586/CVE-2026-64560-public>
-- Baseline commit: `63b4f2b7b497d835c7cb1a43ff8851cd0d7a9ac8`
-- Upstream files: `src/posix64560/t64560_v36.c`, `src/posix64560/t64560_v42.c`
-- Copyright: 2026 GhostLock/CVE-2026-64560 research contributors
-- License: MIT
-- License text: [LICENSES/MIT-CVE-2026-64560.txt](LICENSES/MIT-CVE-2026-64560.txt)
+- Upstream: <https://github.com/woshigenm/CVE-2026-99491>
+- HOneClick port: `native/kernel_117_analysis/new-cve-table-2026-11-23/cve99491-port-117/`
+- Embedded binary: `assets/exp117`
+- License: upstream research code; no explicit redistribution license was established for this port.
 
-`t64560_v36.c` is retained from the upstream research code. `t64560_v42_honor.c` contains device-specific modifications by HOneClick, including retry tuning, phase completion markers, target-process module loading, `adb_root` feature forcing, and self-target test support.
+The 99491 port and AVC-only route are personal research artifacts. Do not
+redistribute the binary or exploit source without reviewing upstream terms and
+the corresponding kernel-module obligations.
 
 ## CVE-2026-98260 research code
 
@@ -41,6 +41,19 @@ This source repository does not yet include a complete, matching KernelSU source
 - License: no explicit upstream license was found at the audited revision
 
 HOneClick adds a preflight mode, a fixed socket path, HOneClick integration and a 115/117 KernelSU module loader. These files are not MIT-licensed HOneClick originals and must not be redistributed as such without permission from the upstream author.
+
+
+## SukiSU Ultra
+
+- Component: SukiSU Ultra manager, `ksud`, and Android17-6.18 LKM
+- Tested version: `v4.3.0-r2`
+- Upstream: <https://github.com/SukiSU-Ultra/SukiSU-Ultra>
+- License: GPL-2.0-only for kernel files; GPL-3.0-or-later for other components
+- License text: [LICENSES/GPL-3.0.txt](LICENSES/GPL-3.0.txt)
+
+The SukiSU flavor embeds the official release artifacts after verifying their
+upstream SHA-256 checksums. The LKM vermagic is adjusted to the documented
+Honor kernels, and its undefined symbols are resolved at runtime by HOneClick.
 
 ## AndroidLiquidGlass / Backdrop
 

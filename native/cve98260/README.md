@@ -18,3 +18,10 @@ HOneClick changes:
 
 The upstream repository did not contain an explicit license at the audited
 revision. See `THIRD_PARTY_NOTICES.md` and `ASSET_PROVENANCE.md`.
+
+## AVC route status
+
+The 99491 AVC clean-flags route is not directly applicable to the 98260
+timer-UAF zero-write primitive. See `AVC-ROUTE.md` for the exact blocker and
+the possible two-stage/controlled-write options. The current 98260 backend
+still uses `selinux_state-7`.

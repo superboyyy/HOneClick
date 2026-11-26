@@ -14,14 +14,13 @@ This file records the known origin and redistribution status of embedded binarie
 | `assets/syms.txt` | Derived from 109 Honor firmware kernel symbol data | No redistribution license established | Release blocker |
 | `assets/syms-115.txt` | Derived from 115 Honor firmware kernel symbol data | No redistribution license established | Release blocker |
 | `assets/syms-117.txt` | Derived from 117 Honor firmware kernel symbol data | No redistribution license established | Release blocker |
+| `src/sukisu/assets/SukiSUManager.apk` | SukiSU Ultra `v4.3.0-r2`, version code `41150`, official release SHA-256 verified | GPL-3.0; upstream source available | SukiSU flavor only |
+| `src/sukisu/assets/ksud` | SukiSU Ultra `v4.3.0-r2` aarch64 userspace, official release SHA-256 verified | GPL-3.0 | SukiSU flavor only |
+| `src/sukisu/assets/sukisu-template-*.ko` | Official SukiSU Android17-6.18 LKM with flavor-specific vermagic; undefined symbols patched at runtime | GPL-2.0 kernel component | SukiSU flavor only |
 | `native/ksu_grant.c`, `assets/ksu_grant` | Project implementation of the KernelSU root-fd bootstrap | Project MIT | Rebuild with `scripts/build-ksu-grant.sh`; output hash verified |
-| `native/forker.c`, `assets/forker` | Project research helper; source present | Project MIT, provenance review recommended | Document build command |
-| `native/perf_cred_honor.c`, `assets/perf_cred_honor` | Project device-specific helper; source present | Project MIT, provenance review recommended | Document build command |
-| `native/t64560_v36.c`, `assets/t64560_v36` | Upstream `CVE-2026-64560-public` at commit `63b4f2b`; source retained with an added attribution header | MIT, copyright retained in source and `LICENSES/MIT-CVE-2026-64560.txt` | Provenance resolved |
-| `native/t64560_v42_honor.c`, `assets/t64560_v42` | Derived from upstream `t64560_v42.c` at commit `63b4f2b`; Honor changes documented | Upstream MIT plus HOneClick modifications | Provenance resolved; native rebuild still pending |
-| `native/kaslr_slide.c`, `assets/kaslr_slide` | Project KASLR helper | Project MIT | Document build command |
+| `assets/exp117` | 99491 117 port (`native/kernel_117_analysis/new-cve-table-2026-11-23/cve99491-port-117/`); source included | Upstream research/port; public redistribution requires review | Personal research only |
 | `native/cve98260/*`, `assets/cve98260_*` | Port of `sganggs/CVE-2026-98260-BRM-AN00` main at `8bb92a66a3d0` | Upstream provides no explicit license | Personal research only; public redistribution blocked |
-| `assets/grab.sh`, `assets/root_stage.sh` | Project scripts | Project MIT | Include checksum |
+| `assets/root_stage.sh` | Project script | Project MIT | Include checksum |
 
 ## Checksums
 

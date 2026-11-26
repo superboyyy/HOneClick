@@ -9,12 +9,12 @@
 - [x] README, security policy, contribution rules, asset provenance, and checksum verification are present.
 - [x] In-app safety notice describes the temporary-root and personal-research scope.
 - [x] `ksu_grant` has a reproducible NDK build script and verified output hash.
-- [x] `t64560_v36` and `t64560_v42_honor` are traced to the public upstream MIT source, with copyright and modifications retained.
 
 ## Release blockers
 
 - [ ] Confirm that the KernelSU Manager APK and `ksud` came from official upstream releases and record their signatures.
 - [ ] Provide complete corresponding source and reproducible build information for the modified KernelSU LKM and other GPL components distributed in the APK.
+- [ ] Record corresponding-source links for the embedded SukiSU manager, `ksud`, and modified SukiSU LKM.
 - [ ] Confirm whether Honor firmware-derived `syms.txt`, `syms-115.txt`, and `syms-117.txt` may be redistributed, or replace them with a user-side generation process.
 - [ ] Obtain a clear redistribution license from the CVE-2026-98260 upstream author or keep the APK personal-only.
 - [ ] Add reproducible build scripts and verify every remaining generated native helper.
