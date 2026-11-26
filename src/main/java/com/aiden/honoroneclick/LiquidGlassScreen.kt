@@ -570,16 +570,13 @@ private fun StepActionCard(
         ) {
             Text(
                 text = step,
-                color = if (completed) palette.positive else palette.muted,
+                color = palette.muted,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier
                     .clip(CapsuleShape)
-                    .background(
-                        if (completed) palette.positive.copy(alpha = if (palette.dark) 0.16f else 0.12f)
-                        else palette.innerFill
-                    )
+                    .background(palette.innerFill)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             )
             Spacer(Modifier.width(6.dp))
@@ -595,7 +592,7 @@ private fun StepActionCard(
             )
             if (completed) {
                 CheckIcon(
-                    color = palette.positive,
+                    color = palette.muted,
                     modifier = Modifier.size(14.dp)
                 )
             } else {
@@ -610,9 +607,13 @@ private fun StepActionCard(
 
         Spacer(Modifier.height(9.dp))
 
+        val valueColor = when (tone) {
+            StatusTone.WARNING, StatusTone.ERROR, StatusTone.RUNNING -> accent
+            else -> palette.foreground
+        }
         Text(
             text = value,
-            color = if (tone == StatusTone.IDLE) palette.foreground else accent,
+            color = valueColor,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
@@ -1370,10 +1371,10 @@ private fun LogPanel(
                 SelectionContainer {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         displayed.forEach { entry ->
-                            val lineColor = when {
-                                entry.isError -> palette.danger
-                                entry.isSuccess -> palette.positive
-                                else -> palette.foreground.copy(alpha = 0.80f)
+                            val lineColor = if (entry.isError) {
+                                palette.danger
+                            } else {
+                                palette.foreground.copy(alpha = 0.80f)
                             }
                             Text(
                                 text = "${entry.timestamp}  ${entry.message}",
