@@ -235,6 +235,14 @@ fun LiquidGlassScreen(state: UiState, actions: UiActions) {
             item(key = "header") {
                 Header(palette)
             }
+            item(key = "device") {
+                DevicePanel(
+                    state = state,
+                    actions = actions,
+                    backdrop = backdrop,
+                    palette = palette
+                )
+            }
             item(key = "status") {
                 StatusPanel(
                     state = state,
@@ -302,14 +310,6 @@ fun LiquidGlassScreen(state: UiState, actions: UiActions) {
                         palette = palette
                     )
                 }
-            }
-            item(key = "device") {
-                DevicePanel(
-                    state = state,
-                    actions = actions,
-                    backdrop = backdrop,
-                    palette = palette
-                )
             }
             item(key = "logs") {
                 LogPanel(
