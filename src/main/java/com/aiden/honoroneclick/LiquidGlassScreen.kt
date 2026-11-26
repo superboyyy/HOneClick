@@ -9,10 +9,10 @@ import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -775,8 +775,7 @@ private fun StageProgressPanel(
 
     GlassCard(
         backdrop = backdrop,
-        palette = palette,
-        modifier = Modifier.animateContentSize()
+        palette = palette
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -940,8 +939,7 @@ private fun DevicePanel(
 
     GlassCard(
         backdrop = backdrop,
-        palette = palette,
-        modifier = Modifier.animateContentSize()
+        palette = palette
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -1316,10 +1314,15 @@ private fun LogPanel(
         }
     }
 
+    val logMaxHeight by animateDpAsState(
+        targetValue = if (expanded) 300.dp else 152.dp,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "logHeight"
+    )
+
     GlassCard(
         backdrop = backdrop,
-        palette = palette,
-        modifier = Modifier.animateContentSize()
+        palette = palette
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -1369,7 +1372,7 @@ private fun LogPanel(
                 .border(1.dp, palette.innerBorder, InnerShape)
                 .heightIn(
                     min = if (displayed.isEmpty()) 54.dp else 104.dp,
-                    max = if (expanded) 300.dp else 152.dp
+                    max = logMaxHeight
                 )
                 .verticalScroll(scroll)
                 .padding(horizontal = 12.dp, vertical = 10.dp)
