@@ -41,7 +41,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -127,20 +126,21 @@ private data class GlassPalette(
         StatusTone.ERROR -> danger
     }
 
-    fun borderBrush(accent: Color? = null, elevated: Boolean = false): Brush {
-        val top = when {
-            accent != null -> accent.copy(alpha = if (dark) 0.45f else 0.36f)
-            dark -> Color.White.copy(alpha = if (elevated) 0.28f else 0.20f)
-            else -> Color.White.copy(alpha = 0.90f)
+    fun borderBrush(elevated: Boolean = false): Brush {
+        val top = if (dark) {
+            Color.White.copy(alpha = if (elevated) 0.24f else 0.18f)
+        } else {
+            Color.Black.copy(alpha = if (elevated) 0.16f else 0.12f)
         }
-        val mid = when {
-            dark -> Color.White.copy(alpha = if (elevated) 0.10f else 0.08f)
-            else -> foreground.copy(alpha = if (elevated) 0.11f else 0.08f)
+        val mid = if (dark) {
+            Color.White.copy(alpha = 0.10f)
+        } else {
+            Color.Black.copy(alpha = 0.08f)
         }
-        val bottom = when {
-            accent != null -> accent.copy(alpha = if (dark) 0.16f else 0.14f)
-            dark -> Color.White.copy(alpha = 0.05f)
-            else -> foreground.copy(alpha = 0.12f)
+        val bottom = if (dark) {
+            Color.White.copy(alpha = 0.06f)
+        } else {
+            Color.Black.copy(alpha = 0.11f)
         }
         return Brush.verticalGradient(listOf(top, mid, bottom))
     }
@@ -149,12 +149,12 @@ private data class GlassPalette(
 private fun glassPalette(dark: Boolean): GlassPalette = if (dark) {
     GlassPalette(
         dark = true,
-        background = Color(0xFF040607),
-        foreground = Color(0xFFF4F8F7),
-        muted = Color(0xFFF4F8F7).copy(alpha = 0.60f),
-        subtle = Color(0xFFF4F8F7).copy(alpha = 0.38f),
-        cardFill = Color.White.copy(alpha = 0.068f),
-        innerFill = Color.White.copy(alpha = 0.052f),
+        background = Color.Black,
+        foreground = Color.White,
+        muted = Color.White.copy(alpha = 0.56f),
+        subtle = Color.White.copy(alpha = 0.36f),
+        cardFill = Color.White.copy(alpha = 0.065f),
+        innerFill = Color.White.copy(alpha = 0.050f),
         innerBorder = Color.White.copy(alpha = 0.10f),
         positive = Color(0xFF4ADE9F),
         warning = Color(0xFFF5B95B),
@@ -165,13 +165,13 @@ private fun glassPalette(dark: Boolean): GlassPalette = if (dark) {
 } else {
     GlassPalette(
         dark = false,
-        background = Color(0xFFF4F6F8),
-        foreground = Color(0xFF0E1513),
-        muted = Color(0xFF0E1513).copy(alpha = 0.58f),
-        subtle = Color(0xFF0E1513).copy(alpha = 0.38f),
-        cardFill = Color.White.copy(alpha = 0.62f),
-        innerFill = Color(0xFF0E1513).copy(alpha = 0.040f),
-        innerBorder = Color(0xFF0E1513).copy(alpha = 0.085f),
+        background = Color.White,
+        foreground = Color.Black,
+        muted = Color.Black.copy(alpha = 0.56f),
+        subtle = Color.Black.copy(alpha = 0.36f),
+        cardFill = Color.Black.copy(alpha = 0.040f),
+        innerFill = Color.Black.copy(alpha = 0.038f),
+        innerBorder = Color.Black.copy(alpha = 0.085f),
         positive = Color(0xFF0D9668),
         warning = Color(0xFFC2780A),
         running = Color(0xFF0277BD),
@@ -221,7 +221,6 @@ fun LiquidGlassScreen(state: UiState, actions: UiActions) {
     Box(Modifier.fillMaxSize().background(palette.background)) {
         BackgroundLayer(
             palette = palette,
-            tone = state.statusTone,
             backdrop = backdrop,
             modifier = Modifier.fillMaxSize()
         )
@@ -330,101 +329,14 @@ fun LiquidGlassScreen(state: UiState, actions: UiActions) {
 @Composable
 private fun BackgroundLayer(
     palette: GlassPalette,
-    tone: StatusTone,
     backdrop: LayerBackdrop,
     modifier: Modifier
 ) {
-    val targetAccent = when (tone) {
-        StatusTone.READY, StatusTone.SUCCESS -> palette.positive
-        StatusTone.RUNNING -> palette.running
-        StatusTone.ERROR -> palette.danger
-        StatusTone.WARNING -> palette.warning
-        StatusTone.IDLE -> palette.running
-    }
-    val animatedAccent by animateColorAsState(
-        targetValue = targetAccent,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-        label = "bgAccent"
-    )
-    val secondaryOrb = if (palette.dark) Color(0xFF4BA3FF) else Color(0xFF56B4E9)
-    val tertiaryOrb = if (palette.dark) Color(0xFF7B6CFF) else Color(0xFF8B80F9)
-
     Box(
         modifier
             .background(palette.background)
             .layerBackdrop(backdrop)
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val primaryAlpha = if (palette.dark) 0.24f else 0.16f
-            val secondaryAlpha = if (palette.dark) 0.18f else 0.12f
-            val tertiaryAlpha = if (palette.dark) 0.14f else 0.09f
-
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(animatedAccent.copy(alpha = primaryAlpha), Color.Transparent),
-                    center = Offset(w * 0.88f, h * 0.11f),
-                    radius = w * 0.82f
-                ),
-                radius = w * 0.82f,
-                center = Offset(w * 0.88f, h * 0.11f)
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(secondaryOrb.copy(alpha = secondaryAlpha), Color.Transparent),
-                    center = Offset(w * 0.08f, h * 0.42f),
-                    radius = w * 0.72f
-                ),
-                radius = w * 0.72f,
-                center = Offset(w * 0.08f, h * 0.42f)
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(tertiaryOrb.copy(alpha = tertiaryAlpha), Color.Transparent),
-                    center = Offset(w * 0.82f, h * 0.84f),
-                    radius = w * 0.68f
-                ),
-                radius = w * 0.68f,
-                center = Offset(w * 0.82f, h * 0.84f)
-            )
-
-            val arcColor = palette.foreground.copy(alpha = if (palette.dark) 0.06f else 0.055f)
-            val stroke = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round)
-            val upperArc = Path().apply {
-                moveTo(-w * 0.08f, h * 0.26f)
-                cubicTo(w * 0.28f, h * 0.17f, w * 0.66f, h * 0.36f, w * 1.08f, h * 0.24f)
-            }
-            drawPath(upperArc, color = arcColor, style = stroke)
-
-            val lowerArc = Path().apply {
-                moveTo(-w * 0.08f, h * 0.68f)
-                cubicTo(w * 0.32f, h * 0.59f, w * 0.70f, h * 0.79f, w * 1.08f, h * 0.64f)
-            }
-            drawPath(lowerArc, color = arcColor.copy(alpha = arcColor.alpha * 0.75f), style = stroke)
-        }
-
-        Text(
-            text = "H1C",
-            color = palette.foreground.copy(alpha = if (palette.dark) 0.042f else 0.035f),
-            fontSize = 156.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = (-6).sp,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = 22.dp, y = 42.dp)
-        )
-        Text(
-            text = "ONE\nCLICK",
-            color = palette.foreground.copy(alpha = if (palette.dark) 0.026f else 0.024f),
-            fontSize = 68.sp,
-            lineHeight = 64.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .offset(x = 18.dp, y = 16.dp)
-        )
-    }
+    )
 }
 
 @Composable
@@ -510,8 +422,7 @@ private fun StatusPanel(
     GlassCard(
         backdrop = backdrop,
         palette = palette,
-        elevated = true,
-        accentBorder = if (state.statusTone != StatusTone.IDLE) accent else null
+        elevated = true
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -553,12 +464,8 @@ private fun StatusPanel(
                     .fillMaxWidth()
                     .padding(top = 10.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(palette.running.copy(alpha = if (palette.dark) 0.12f else 0.09f))
-                    .border(
-                        1.dp,
-                        palette.running.copy(alpha = if (palette.dark) 0.28f else 0.22f),
-                        RoundedCornerShape(12.dp)
-                    )
+                    .background(palette.innerFill)
+                    .border(1.dp, palette.innerBorder, RoundedCornerShape(12.dp))
                     .padding(horizontal = 11.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -665,8 +572,7 @@ private fun StepActionCard(
                 backdrop = backdrop,
                 palette = palette,
                 shape = CardShape,
-                elevated = false,
-                accentBorder = if (completed) palette.positive else null
+                elevated = false
             )
             .clickable(
                 interactionSource = interaction,
@@ -759,22 +665,16 @@ private fun PrimaryActionButton(
         label = "ctaScale"
     )
 
-    val tint = when {
-        state.busy -> palette.running
-        state.rootReady -> palette.positive
-        ready -> palette.positive
-        else -> palette.foreground
-    }
     val surfaceAlpha = when {
-        state.busy -> if (palette.dark) 0.14f else 0.10f
-        pressed && enabled -> if (palette.dark) 0.30f else 0.24f
-        ready -> if (palette.dark) 0.20f else 0.16f
-        else -> if (palette.dark) 0.08f else 0.06f
+        state.busy -> if (palette.dark) 0.08f else 0.05f
+        pressed && enabled -> if (palette.dark) 0.24f else 0.16f
+        ready -> if (palette.dark) 0.15f else 0.09f
+        else -> if (palette.dark) 0.065f else 0.045f
     }
     val borderColor = when {
-        state.busy -> palette.running.copy(alpha = 0.45f)
-        ready -> tint.copy(alpha = if (palette.dark) 0.62f else 0.50f)
-        else -> palette.foreground.copy(alpha = 0.18f)
+        state.busy -> palette.foreground.copy(alpha = 0.22f)
+        ready -> palette.foreground.copy(alpha = if (palette.dark) 0.48f else 0.32f)
+        else -> palette.foreground.copy(alpha = 0.16f)
     }
     val label = when {
         state.busy -> "03 正在执行提权…"
@@ -783,7 +683,7 @@ private fun PrimaryActionButton(
         else -> "03 开始提权（需先完成 01）"
     }
     val textColor = when {
-        state.busy -> palette.foreground.copy(alpha = 0.72f)
+        state.busy -> palette.foreground.copy(alpha = 0.64f)
         ready -> palette.foreground
         else -> palette.muted
     }
@@ -802,10 +702,10 @@ private fun PrimaryActionButton(
                 effects = {
                     vibrancy()
                     blur(16.dp.toPx())
-                    lens(14.dp.toPx(), 26.dp.toPx(), chromaticAberration = ready && !state.busy)
+                    lens(14.dp.toPx(), 26.dp.toPx(), chromaticAberration = false)
                 },
                 onDrawSurface = {
-                    drawRect(tint.copy(alpha = surfaceAlpha))
+                    drawRect(palette.foreground.copy(alpha = surfaceAlpha))
                 }
             )
             .border(
@@ -1088,11 +988,7 @@ private fun DevicePanel(
                 .padding(top = 10.dp)
                 .clip(InnerShape)
                 .background(palette.innerFill)
-                .border(
-                    1.dp,
-                    if (matched != null) palette.positive.copy(alpha = 0.28f) else palette.innerBorder,
-                    InnerShape
-                )
+                .border(1.dp, palette.innerBorder, InnerShape)
                 .clickable(enabled = hasKernel, role = Role.Button) {
                     copyToClipboard(context, "kernel", state.currentKernel)
                     Toast.makeText(context, "已复制当前内核版本", Toast.LENGTH_SHORT).show()
@@ -1288,12 +1184,12 @@ private fun KernelRow(
     palette: GlassPalette
 ) {
     val borderColor = if (isCurrentDevice) {
-        palette.positive.copy(alpha = if (palette.dark) 0.42f else 0.34f)
+        palette.foreground.copy(alpha = if (palette.dark) 0.24f else 0.18f)
     } else {
         palette.innerBorder
     }
     val fillColor = if (isCurrentDevice) {
-        palette.positive.copy(alpha = if (palette.dark) 0.10f else 0.07f)
+        palette.foreground.copy(alpha = if (palette.dark) 0.075f else 0.055f)
     } else {
         palette.innerFill
     }
@@ -1470,11 +1366,7 @@ private fun LogPanel(
                 .padding(top = 10.dp)
                 .clip(InnerShape)
                 .background(palette.innerFill)
-                .border(
-                    1.dp,
-                    if (state.errorCount > 0) palette.danger.copy(alpha = 0.22f) else palette.innerBorder,
-                    InnerShape
-                )
+                .border(1.dp, palette.innerBorder, InnerShape)
                 .heightIn(
                     min = if (displayed.isEmpty()) 54.dp else 104.dp,
                     max = if (expanded) 300.dp else 152.dp
@@ -1598,13 +1490,12 @@ private fun GlassCard(
     palette: GlassPalette,
     modifier: Modifier = Modifier,
     elevated: Boolean = false,
-    accentBorder: Color? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
         modifier
             .fillMaxWidth()
-            .liquidGlass(backdrop, palette, CardShape, elevated, accentBorder)
+            .liquidGlass(backdrop, palette, CardShape, elevated)
             .padding(17.dp),
         content = content
     )
@@ -1800,8 +1691,7 @@ private fun Modifier.liquidGlass(
     backdrop: LayerBackdrop,
     palette: GlassPalette,
     shape: RoundedCornerShape,
-    elevated: Boolean = false,
-    accentBorder: Color? = null
+    elevated: Boolean = false
 ): Modifier =
     drawBackdrop(
         backdrop = backdrop,
@@ -1812,7 +1702,7 @@ private fun Modifier.liquidGlass(
             lens(
                 refractionHeight = (if (elevated) 16 else 10).dp.toPx(),
                 refractionAmount = (if (elevated) 30 else 20).dp.toPx(),
-                chromaticAberration = elevated
+                chromaticAberration = false
             )
         },
         onDrawSurface = {
@@ -1821,7 +1711,7 @@ private fun Modifier.liquidGlass(
     )
         .border(
             width = 1.dp,
-            brush = palette.borderBrush(accent = accentBorder, elevated = elevated),
+            brush = palette.borderBrush(elevated = elevated),
             shape = shape
         )
         .clip(shape)
