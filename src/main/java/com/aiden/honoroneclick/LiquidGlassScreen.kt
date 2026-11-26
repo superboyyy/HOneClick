@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -74,7 +73,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
@@ -182,18 +180,15 @@ private fun glassPalette(dark: Boolean): GlassPalette = if (dark) {
 
 @Composable
 fun LiquidGlassScreen(state: UiState, actions: UiActions) {
-    val configuration = LocalConfiguration.current
-    val dark = configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-        Configuration.UI_MODE_NIGHT_YES
-    val palette = remember(dark) { glassPalette(dark) }
+    val palette = remember { glassPalette(dark = true) }
     val backdrop = rememberLayerBackdrop()
     val view = LocalView.current
 
     SideEffect {
         val activity = view.context.findActivity() ?: return@SideEffect
         WindowCompat.getInsetsController(activity.window, view).apply {
-            isAppearanceLightStatusBars = !dark
-            isAppearanceLightNavigationBars = !dark
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
         }
     }
 
@@ -647,16 +642,28 @@ private fun PrimaryActionButton(
         label = "ctaScale"
     )
 
+    val iconOrangeStart = Color(0xFFF36B39)
+    val iconOrangeEnd = Color(0xFFD64021)
     val surfaceAlpha = when {
-        state.busy -> if (palette.dark) 0.08f else 0.05f
-        pressed && enabled -> if (palette.dark) 0.24f else 0.16f
-        ready -> if (palette.dark) 0.15f else 0.09f
-        else -> if (palette.dark) 0.065f else 0.045f
+        state.busy -> 0.30f
+        pressed && enabled -> 0.72f
+        ready -> 0.88f
+        else -> 0.22f
     }
-    val borderColor = when {
-        state.busy -> palette.foreground.copy(alpha = 0.22f)
-        ready -> palette.foreground.copy(alpha = if (palette.dark) 0.48f else 0.32f)
-        else -> palette.foreground.copy(alpha = 0.16f)
+    val borderBrush = when {
+        ready && !state.busy -> Brush.verticalGradient(
+            listOf(
+                Color(0xFFFFB899).copy(alpha = 0.56f),
+                Color(0xFFF05A32).copy(alpha = 0.32f),
+                Color(0xFFB52F21).copy(alpha = 0.40f)
+            )
+        )
+        else -> Brush.verticalGradient(
+            listOf(
+                Color(0xFFF05A32).copy(alpha = 0.42f),
+                Color(0xFFD64021).copy(alpha = 0.22f)
+            )
+        )
     }
     val label = when {
         state.busy -> "03 正在执行提权…"
@@ -665,9 +672,9 @@ private fun PrimaryActionButton(
         else -> "03 开始提权（需先完成 01）"
     }
     val textColor = when {
-        state.busy -> palette.foreground.copy(alpha = 0.64f)
-        ready -> palette.foreground
-        else -> palette.muted
+        state.busy -> Color.White.copy(alpha = 0.78f)
+        ready -> Color.White
+        else -> Color.White.copy(alpha = 0.62f)
     }
 
     Box(
@@ -687,12 +694,19 @@ private fun PrimaryActionButton(
                     lens(14.dp.toPx(), 26.dp.toPx(), chromaticAberration = false)
                 },
                 onDrawSurface = {
-                    drawRect(palette.foreground.copy(alpha = surfaceAlpha))
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            listOf(
+                                iconOrangeStart.copy(alpha = surfaceAlpha),
+                                iconOrangeEnd.copy(alpha = surfaceAlpha)
+                            )
+                        )
+                    )
                 }
             )
             .border(
-                width = if (ready || state.busy) 1.5.dp else 1.dp,
-                color = borderColor,
+                width = if (ready || state.busy) 1.25.dp else 1.dp,
+                brush = borderBrush,
                 shape = CapsuleShape
             )
             .clip(CapsuleShape)
@@ -712,13 +726,13 @@ private fun PrimaryActionButton(
         ) {
             if (state.busy) {
                 RunningSpinner(
-                    color = palette.running,
+                    color = Color.White,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(Modifier.width(10.dp))
             } else if (state.rootReady) {
                 CheckIcon(
-                    color = palette.positive,
+                    color = Color.White,
                     modifier = Modifier.size(17.dp)
                 )
                 Spacer(Modifier.width(8.dp))
