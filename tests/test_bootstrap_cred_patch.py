@@ -27,7 +27,7 @@ class BootstrapCredentialPatchTests(unittest.TestCase):
 
     def test_reproducible_output_matches_bundled_module(self):
         self.assertEqual(self.fixed, module.patch(self.original))
-        self.assertEqual(self.fixed, (ROOT / "assets/ksu-template.ko").read_bytes())
+        self.assertEqual(self.fixed, (ROOT / "src/kernelsu/assets/ksu-template.ko").read_bytes())
         self.assertEqual(hashlib.sha256(self.fixed).hexdigest(), "86ed32a0946490736850d0c5d7a703c6e5bfde541e82864ed892b31e2b590563")
 
     def test_other_sections_and_runtime_code_are_unchanged(self):

@@ -24,7 +24,6 @@ import androidx.core.view.WindowCompat;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -32,9 +31,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -49,8 +46,6 @@ import rikka.shizuku.ShizukuBinderWrapper;
 public final class MainActivity extends ComponentActivity implements UiActions {
     private static final int REQ_SHIZUKU = 1001;
     private static volatile String WORK;
-    private static final String CVE_98260_LEGACY_ROOT_SOCKET =
-            "/data/local/tmp/cve98260-root.sock";
     private static final String CVE_98260_ROOT_SOCKET_PREFIX =
             "/data/local/tmp/cve98260-root-";
     private static final long CVE_98260_QUIET_WAIT_MS = 15_000L;
@@ -487,9 +482,9 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     }
 
     private ExploitChoice resolveExploit(String kernel, ExploitChoice requested) {
-        if (requested == ExploitChoice.CVE_99491 && isCve99491Kernel(kernel))
+        if (requested == ExploitChoice.CVE_99491)
             return ExploitChoice.CVE_99491;
-        if (requested == ExploitChoice.CVE_98260 && isKnownCve98260Kernel(kernel))
+        if (requested == ExploitChoice.CVE_98260)
             return ExploitChoice.CVE_98260;
         if (isCve99491Kernel(kernel))
             return ExploitChoice.CVE_99491;
@@ -506,9 +501,6 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     }
 
     private KernelProfile findKernelProfile(String kernel) throws Exception {
-        KernelProfile imported = findImportedProfile(kernel);
-        if (imported != null) return imported;
-
         JSONObject root = new JSONObject(new String(
                 readAsset("exploit-profiles.json"), StandardCharsets.UTF_8));
         JSONArray profiles = root.getJSONArray("profiles");
@@ -521,33 +513,6 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         }
         throw new IllegalStateException(
                 "没有与实际内核匹配的 98260 配置：" + kernel);
-    }
-
-    private KernelProfile findImportedProfile(String kernel) throws Exception {
-        File profiles = new File(getFilesDir(), "profiles");
-        List<File> files = new ArrayList<>();
-        collectProfileFiles(profiles, files);
-        for (File file : files) {
-            JSONObject p = new JSONObject(new String(
-                    readFileBytes(file), StandardCharsets.UTF_8));
-            if (!kernel.equals(p.getString("kernel"))) continue;
-            if (!p.optBoolean("vulnerable", false))
-                throw new IllegalStateException("导入配置未通过漏洞路径检查：" + kernel);
-            return profileFromJson(p);
-        }
-        return null;
-    }
-
-    private static void collectProfileFiles(File directory, List<File> files) {
-        File[] children = directory.listFiles();
-        if (children == null) return;
-        for (File child : children) {
-            if (child.isDirectory()) {
-                collectProfileFiles(child, files);
-            } else if (child.getName().endsWith(".json")) {
-                files.add(child);
-            }
-        }
     }
 
     private KernelProfile profileFromJson(JSONObject p) throws Exception {
@@ -648,7 +613,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         }
 
         stage("生成 " + MANAGER_NAME + " 模块");
-        byte[] template = readProfileResource(profile.moduleAsset);
+        byte[] template = readAsset(profile.moduleAsset);
         Map<String, Long> symbols = loadSymbols(profile.symbolsAsset);
         byte[] module = patchModule(template, symbols, slide);
         stageBytes("ksu-patched.ko", module, "644");
@@ -829,7 +794,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     }
 
     private Map<String, Long> loadSymbols(String assetName) throws Exception {
-        return parseSymbolMap(readProfileResource(assetName));
+        return parseSymbolMap(readAsset(assetName));
     }
 
     static Map<String, Long> parseSymbolMap(byte[] data) {
@@ -980,11 +945,6 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         }
     }
 
-    private void copyAsset(String name, String dest) throws Exception {
-        shell("mkdir -p " + WORK);
-        stageAsset(name, dest, "644");
-    }
-
     private void prepareWorkDirectory() throws Exception {
         String candidate = "/data/local/tmp/honor-run-"
                 + Long.toHexString(System.nanoTime());
@@ -1010,18 +970,6 @@ public final class MainActivity extends ComponentActivity implements UiActions {
 
     private byte[] readAsset(String name) throws Exception {
         try (InputStream in = getAssets().open(name)) { return readAllBytes(in); }
-    }
-
-    private byte[] readProfileResource(String path) throws Exception {
-        File file = new File(path);
-        if (file.isAbsolute()) return readFileBytes(file);
-        return readAsset(path);
-    }
-
-    private static byte[] readFileBytes(File file) throws Exception {
-        try (FileInputStream in = new FileInputStream(file)) {
-            return readAllBytes(in);
-        }
     }
 
     private static byte[] readAllBytes(InputStream in) throws Exception {
@@ -1063,9 +1011,6 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         for (int i = 0; i < out.length; i++)
             out[i] = (byte)Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
         return out;
-    }
-    private static boolean isHex(char c) {
-        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
     }
 
     private static final class RemoteProcess extends Process {
@@ -1230,22 +1175,6 @@ public final class MainActivity extends ComponentActivity implements UiActions {
         stage("初始化 " + MANAGER_NAME + " 用户态");
         String grant = initializeKernelSU();
         log(grant.trim());
-    }
-
-    private long parseCve99491Slide(String text) {
-        for (String line : text.split("\\r?\\n")) {
-            int at = line.indexOf("slide=");
-            if (at < 0) continue;
-            String token = line.substring(at + 6).split("\\s+")[0];
-            try {
-                long slide = Long.parseUnsignedLong(
-                        token.replaceFirst("^0x", ""), 16);
-                if (slide > 0 && (slide & 0xfffL) == 0)
-                    return slide;
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        throw new IllegalStateException("99491 slide 探针未返回有效 slide");
     }
 
     private void showRootReady() {

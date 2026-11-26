@@ -3,8 +3,8 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
-source="$root/assets/ksu-template.ko"
-destination="$root/assets/ksu-template-115.ko"
+source="$root/src/kernelsu/assets/ksu-template.ko"
+destination="$root/src/kernelsu/assets/ksu-template-115.ko"
 
 if [ -z "$ndk" ]; then
     echo "Set ANDROID_NDK_HOME to an Android NDK installation." >&2

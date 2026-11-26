@@ -38,8 +38,7 @@ data class StageProgress(
 data class LogEntry(
     val timestamp: String,
     val message: String,
-    val isError: Boolean,
-    val isSuccess: Boolean = false
+    val isError: Boolean
 )
 
 enum class ExploitChoice(val label: String) {
@@ -154,15 +153,6 @@ class UiState {
     val errorCount: Int
         get() = logEntries.count { it.isError }
 
-    fun setStatus(title: String, detail: String, active: Boolean) {
-        val tone = when {
-            active -> if (rootReady) StatusTone.SUCCESS else StatusTone.READY
-            busy -> StatusTone.RUNNING
-            else -> StatusTone.WARNING
-        }
-        setStatus(title, detail, tone, active)
-    }
-
     fun setStatus(title: String, detail: String, tone: StatusTone, active: Boolean) {
         statusTitle = title
         statusDetail = detail
@@ -191,19 +181,13 @@ class UiState {
         }
     }
 
-    fun appendLog(text: String) {
-        appendLog(text, false)
-    }
-
     fun appendLog(text: String, isError: Boolean) {
         val cleaned = text.trim()
         if (cleaned.isEmpty()) return
-        val success = !isError && (cleaned.contains("成功") || cleaned.contains("已就绪"))
         val next = logEntries + LogEntry(
             timestamp = currentTimeString(),
             message = cleaned,
-            isError = isError,
-            isSuccess = success
+            isError = isError
         )
         logEntries = if (next.size > MAX_LOG_ENTRIES) {
             next.takeLast(MAX_LOG_ENTRIES)

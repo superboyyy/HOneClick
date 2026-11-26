@@ -44,7 +44,7 @@ java_source = build / "ModulePatchHarness.java"
 java_source.write_text(harness, encoding="utf-8")
 subprocess.run([str(args.java_home / "bin" / ("javac" + executable_suffix)), "-encoding", "UTF-8", str(java_source)], check=True)
 output = build / "relocated.ko"
-subprocess.run([str(args.java_home / "bin" / ("java" + executable_suffix)), "-cp", str(build), "ModulePatchHarness", str(root / "assets/ksu-template.ko"), str(root / "assets/syms.txt"), str(output)], check=True)
+subprocess.run([str(args.java_home / "bin" / ("java" + executable_suffix)), "-cp", str(build), "ModulePatchHarness", str(root / "src/kernelsu/assets/ksu-template.ko"), str(root / "assets/syms.txt"), str(output)], check=True)
 symbols = {}
 for line in (root / "assets/syms.txt").read_text().splitlines():
     fields = line.split()
