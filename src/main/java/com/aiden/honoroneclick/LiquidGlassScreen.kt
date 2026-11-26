@@ -592,7 +592,7 @@ private fun StepActionCard(
             )
             if (completed) {
                 CheckIcon(
-                    color = palette.muted,
+                    color = palette.positive,
                     modifier = Modifier.size(14.dp)
                 )
             } else {
