@@ -1,8 +1,8 @@
 # SukiSU Ultra command-line root
 
 `scripts/root-98260-sukisu.sh` is a standalone command-line variant of the
-CVE-2026-98260 flow. It does not modify or replace any HOneClick APK asset.
-Instead, it uses the official SukiSU Ultra manager, `ksud`, and LKM release.
+CVE-2026-98260 flow. It runs independently from the APK build and downloads the
+official SukiSU Ultra manager, `ksud`, and LKM release directly.
 
 ## Requirements
 
@@ -23,7 +23,7 @@ the manager APK is neither downloaded nor reinstalled. Use
 ## Check the target
 
 ```sh
-ANDROID_SERIAL=ANBX026911002400 \
+ANDROID_SERIAL=<DEVICE_SERIAL> \
 ./scripts/root-98260-sukisu.sh --check
 ```
 
@@ -35,7 +35,7 @@ whether a reboot is required.
 Start from a fresh reboot before switching from vanilla KernelSU:
 
 ```sh
-ANDROID_SERIAL=ANBX026911002400 \
+ANDROID_SERIAL=<DEVICE_SERIAL> \
 ./scripts/root-98260-sukisu.sh --preflight
 ```
 
@@ -79,5 +79,6 @@ Use explicitly verified local SukiSU files instead of downloading:
 - `scripts/patch-kernel-module.py`: pure-Python ELF64 relocatable patcher for
   exact vermagic and runtime symbol addresses
 
-The official SukiSU Ultra components are GPL-3.0. This repository does not
-redistribute them; the CLI downloads the pinned upstream release by default.
+The official SukiSU Ultra components are licensed under GPL-2.0/GPL-3.0. This
+CLI downloads the pinned upstream release by default (the `sukisu` APK flavor
+separately embeds verified upstream artifacts under `src/sukisu/assets/`).

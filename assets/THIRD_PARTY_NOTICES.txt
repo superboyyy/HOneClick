@@ -7,6 +7,11 @@ Licensed under GNU General Public License v3.0.
 The bundled kernel module is modified and declares license=GPL.
 Corresponding-source and redistribution review is required.
 
+SukiSU Ultra (including ksud, SukiSU Ultra Manager, and LKM)
+Tested version: v4.3.0-r2 / manager version code 41150
+https://github.com/SukiSU-Ultra/SukiSU-Ultra
+Licensed under GPL-2.0-only (kernel module) and GPL-3.0-or-later (userspace/manager).
+
 Shizuku (including client JARs and Shizuku Manager)
 Tested version: 13.6.0.r1086.2650830c
 https://github.com/RikkaApps/Shizuku
@@ -20,9 +25,10 @@ Personal research use only; public redistribution requires upstream permission.
 
 CVE-2026-99491 research code
 https://github.com/woshigenm/CVE-2026-99491
-HOneClick 117 port: native/kernel_117_analysis/new-cve-table-2026-11-23/cve99491-port-117/
-Embedded binary: assets/exp117
-No explicit redistribution license was established for this port; personal research use only.
+HOneClick 117 port: native/cve99491/
+Embedded binaries: assets/exp117, assets/ko_patch
+ko_patch.c is distributed under GPL-2.0-only (Copyright (C) 2026 woshigenm);
+exp117 has no explicit redistribution license established and is for personal research use only.
 
 AndroidLiquidGlass / Backdrop 2.0.1
 Copyright Kyant0 and contributors
@@ -36,6 +42,10 @@ Licensed under the Apache License, Version 2.0.
 Kotlin
 Copyright JetBrains s.r.o.
 Licensed under the Apache License, Version 2.0.
+
+Honor firmware-derived symbol data
+assets/syms*.txt and flavor ko_syms-*.txt are derived from kernel symbol data
+associated with tested Honor firmware. No open-source license has been established.
 
 Full GPL-3.0 and Apache-2.0 texts are bundled under assets/licenses/.
 Per-asset provenance is included in the project source repository under

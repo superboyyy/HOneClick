@@ -2,46 +2,47 @@
 
 This repository includes the runtime assets used by the tested build. Their presence does not override third-party licenses or confirm redistribution rights for vendor-derived data.
 
-The runtime files are located under `assets/`:
+The shared runtime files are located under `assets/`:
 
 | File | Status |
 |---|---|
-| `KernelSUManager.apk` | Included; official artifact and corresponding-source review required |
-| `ShizukuManager.apk` | Included; Apache-2.0 attribution required |
-| `ksud` | Included; KernelSU GPL-3.0 obligations apply |
-| `ksu-template.ko` | Included; modified KernelSU module for the 109/98260 backend, corresponding-source review required |
-| `ksu-template-115.ko` | Included; same KernelSU module with the 115 vermagic, corresponding-source review required |
-| `ksu-template-117.ko` | Included; same KernelSU module with the 117 vermagic, corresponding-source review required |
-| `syms.txt` | Included; 109 firmware-derived symbols, redistribution rights unresolved |
-| `syms-115.txt` | Included; 115 firmware-derived symbols, redistribution rights unresolved |
-| `syms-117.txt` | Included; 117 firmware-derived symbols, redistribution rights unresolved |
-| `cve98260_plant` | Prebuilt helper; source included under `native/cve98260/` |
-| `cve98260_slide` | Prebuilt KASLR helper; source included |
-| `cve98260_su` | Prebuilt temporary-root client; source included |
-| `cve98260_module` | Prebuilt `finit_module` helper; source included |
-| `exp117` | 99491 117 aarch64 exploit binary; source included under `native/kernel_117_analysis/new-cve-table-2026-11-23/cve99491-port-117/src/` |
-| `ksu_grant` | Prebuilt helper; reproducible source and build script included |
+| `assets/ShizukuManager.apk` | Included; Apache-2.0 attribution required |
+| `assets/ksud` | Included; KernelSU GPL-3.0 obligations apply (overridden in `sukisu` flavor) |
+| `assets/exploit-profiles.json` | Included; default KernelSU 98260 profiles (overridden in `sukisu` flavor) |
+| `assets/syms.txt` | Included; 109 firmware-derived symbols, redistribution rights unresolved |
+| `assets/syms-115.txt` | Included; 115 firmware-derived symbols, redistribution rights unresolved |
+| `assets/syms-117.txt` | Included; 117 firmware-derived symbols, redistribution rights unresolved |
+| `assets/cve98260_plant` | Prebuilt helper; source included under `native/cve98260/` |
+| `assets/cve98260_slide` | Prebuilt KASLR helper; source included under `native/cve98260/` |
+| `assets/cve98260_su` | Prebuilt temporary-root client; source included under `native/cve98260/` |
+| `assets/cve98260_module` | Prebuilt `finit_module` helper; source included under `native/cve98260/` |
+| `assets/exp117` | 99491 117 aarch64 exploit binary; source included under `native/cve99491/` |
+| `assets/ko_patch` | On-device ELF64 `.ko` vermagic/symbol patcher for 99491; source included under `native/cve99491/` |
+| `assets/ksu_grant` | Prebuilt helper; reproducible source (`native/ksu_grant.c`) and build script included |
 
-The SukiSU APK flavor additionally embeds files from `src/sukisu/assets/`: the
-official SukiSU Ultra manager, SukiSU `ksud`, and three SukiSU LKM templates
-with 109/115/117 vermagic. These files are not part of the KernelSU flavor.
+Flavor-specific manager and LKM assets are kept in separate Gradle source sets so each APK only bundles its own manager and kernel module templates:
+
+- **`src/sukisu/assets/`** (default `sukisu` flavor):
+  - `SukiSUManager.apk`, `ksud`, `exploit-profiles.json`
+  - `sukisu-template-109.ko`, `sukisu-template-115.ko`, `sukisu-template-117.ko`
+  - `ko_syms-sukisu117.txt` (99491 runtime symbol list for SukiSU 117 LKM)
+- **`src/kernelsu/assets/`** (optional `kernelsu` flavor):
+  - `KernelSUManager.apk`
+  - `ksu-template.ko`, `ksu-template-115.ko`, `ksu-template-117.ko`
+  - `ko_syms-117.txt` (99491 runtime symbol list for KernelSU 117 LKM)
 
 Keep the existing shell scripts and license files in `assets/`.
 
 `cve98260_*` can be rebuilt with `scripts/build-cve98260.sh`. The 115 and 117
-module metadata can be regenerated with `scripts/build-ksu-template-115.sh` and
-`scripts/build-ksu-template-117.sh`. The 99491 `exp117` binary is built from
-`native/.../cve99491-port-117/src/exp117.c` with the fixed NDK; see
+KernelSU module metadata can be regenerated with `scripts/build-ksu-template-115.sh`
+and `scripts/build-ksu-template-117.sh`. The 99491 `exp117` and `ko_patch`
+binaries are built from `native/cve99491/` with the fixed NDK; see
 `scripts/build-cve99491.sh`.
 
 Runtime helpers honor `HONOR_WORK`, allowing each root attempt to use a fresh
 `/data/local/tmp/honor-run-*` directory instead of a stale fixed directory.
 
-`speed.cfg` is intentionally not shipped: it is an optional, user-created file at
-`/data/local/tmp/honor/speed.cfg` used to roll the spray timing back to the previous
-behaviour. See the tuning section in `README.md`.
-
-Expected hashes for the currently tested private assets are listed in `ASSET_SHA256SUMS`. Run:
+Expected hashes for all bundled runtime assets are listed in `ASSET_SHA256SUMS`. Run:
 
 ```bash
 ./scripts/verify-assets.sh

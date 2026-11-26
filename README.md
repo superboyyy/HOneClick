@@ -35,9 +35,9 @@ English summary: HOneClick is an unofficial Honor temporary-root research tool w
 1. 连接 Shizuku 后读取实际 `uname -r`；AUTO 在 117 上使用 `99491`，在 109/115 上使用 `98260`。
 2. 打开无线调试和 Shizuku 服务。
 3. 安装并打开 HOneClick。
-4. 点击 `01 连接 Shizuku` 并在其中完成授权。
-5. 点击 `02 安装 SukiSU`（默认）；安装完成后无需进行操作，返回本应用。
-6. 保持屏幕开启，点击 `03 开始提权`。
+4. 点击 `01 SHIZUKU` 步骤卡并在 Shizuku 中完成授权。
+5. 点击 `02 SUKISU` 步骤卡安装 SukiSU 管理器（默认）；安装完成后无需操作，返回本应用即可自动识别。
+6. 点击 `03 开始提权`（执行期间应用会自动保持屏幕常亮）。
 7. root 完成后，在 SukiSU 管理器中按需授权应用。
 
 运行大概需要 10-30 分钟，在某一个步骤如超过 5 分钟，重启手机再来一遍兴许是更好的选择。
@@ -134,8 +134,8 @@ export ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/28.2.13676358"
 仓库提供独立的 SukiSU Ultra 命令行流程，不替换 APK 内置管理器。它会在全新启动后执行 98260、加载官方 SukiSU LKM、初始化用户态并安装管理器：
 
 ```bash
-ANDROID_SERIAL=ANBX026911002400 ./scripts/root-98260-sukisu.sh --check
-ANDROID_SERIAL=ANBX026911002400 ./scripts/root-98260-sukisu.sh --preflight
+ANDROID_SERIAL=<DEVICE_SERIAL> ./scripts/root-98260-sukisu.sh --check
+ANDROID_SERIAL=<DEVICE_SERIAL> ./scripts/root-98260-sukisu.sh --preflight
 ```
 
 默认下载并校验 SukiSU Ultra `v4.3.0-r2` 官方资产。切换前必须重启，且不能已经加载 `kernelsu` 模块。详细说明见 [docs/SUKISU_CLI.md](docs/SUKISU_CLI.md)。

@@ -25,9 +25,9 @@ This source repository does not yet include a complete, matching KernelSU source
 ## CVE-2026-99491 research code
 
 - Upstream: <https://github.com/woshigenm/CVE-2026-99491>
-- HOneClick port: `native/kernel_117_analysis/new-cve-table-2026-11-23/cve99491-port-117/`
-- Embedded binary: `assets/exp117`
-- License: upstream research code; no explicit redistribution license was established for this port.
+- HOneClick port: `native/cve99491/`
+- Embedded binaries: `assets/exp117`, `assets/ko_patch`
+- License: `ko_patch.c` is distributed under GPL-2.0-only (Copyright (C) 2026 woshigenm); `exp117.c` is upstream research code with no explicit redistribution license established for this port.
 
 The 99491 port and AVC-only route are personal research artifacts. Do not
 redistribute the binary or exploit source without reviewing upstream terms and
