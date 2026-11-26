@@ -1,8 +1,28 @@
 package com.aiden.honoroneclick
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.res.Configuration
+import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,6 +40,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -38,26 +59,36 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.core.view.WindowCompat
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -66,20 +97,95 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
-import android.content.res.Configuration
+import kotlinx.coroutines.delay
 
-private val CardShape = RoundedCornerShape(28.dp)
+private val CardShape = RoundedCornerShape(26.dp)
+private val InnerShape = RoundedCornerShape(16.dp)
 private val CapsuleShape = RoundedCornerShape(50)
+
+private data class GlassPalette(
+    val dark: Boolean,
+    val background: Color,
+    val foreground: Color,
+    val muted: Color,
+    val subtle: Color,
+    val cardFill: Color,
+    val innerFill: Color,
+    val innerBorder: Color,
+    val positive: Color,
+    val warning: Color,
+    val running: Color,
+    val danger: Color,
+    val link: Color
+) {
+    fun colorFor(tone: StatusTone): Color = when (tone) {
+        StatusTone.IDLE -> muted
+        StatusTone.WARNING -> warning
+        StatusTone.READY -> positive
+        StatusTone.RUNNING -> running
+        StatusTone.SUCCESS -> positive
+        StatusTone.ERROR -> danger
+    }
+
+    fun borderBrush(accent: Color? = null, elevated: Boolean = false): Brush {
+        val top = when {
+            accent != null -> accent.copy(alpha = if (dark) 0.45f else 0.36f)
+            dark -> Color.White.copy(alpha = if (elevated) 0.28f else 0.20f)
+            else -> Color.White.copy(alpha = 0.90f)
+        }
+        val mid = when {
+            dark -> Color.White.copy(alpha = if (elevated) 0.10f else 0.08f)
+            else -> foreground.copy(alpha = if (elevated) 0.11f else 0.08f)
+        }
+        val bottom = when {
+            accent != null -> accent.copy(alpha = if (dark) 0.16f else 0.14f)
+            dark -> Color.White.copy(alpha = 0.05f)
+            else -> foreground.copy(alpha = 0.12f)
+        }
+        return Brush.verticalGradient(listOf(top, mid, bottom))
+    }
+}
+
+private fun glassPalette(dark: Boolean): GlassPalette = if (dark) {
+    GlassPalette(
+        dark = true,
+        background = Color(0xFF040607),
+        foreground = Color(0xFFF4F8F7),
+        muted = Color(0xFFF4F8F7).copy(alpha = 0.60f),
+        subtle = Color(0xFFF4F8F7).copy(alpha = 0.38f),
+        cardFill = Color.White.copy(alpha = 0.068f),
+        innerFill = Color.White.copy(alpha = 0.052f),
+        innerBorder = Color.White.copy(alpha = 0.10f),
+        positive = Color(0xFF4ADE9F),
+        warning = Color(0xFFF5B95B),
+        running = Color(0xFF60C6FF),
+        danger = Color(0xFFFF7B72),
+        link = Color(0xFF64D6A8)
+    )
+} else {
+    GlassPalette(
+        dark = false,
+        background = Color(0xFFF4F6F8),
+        foreground = Color(0xFF0E1513),
+        muted = Color(0xFF0E1513).copy(alpha = 0.58f),
+        subtle = Color(0xFF0E1513).copy(alpha = 0.38f),
+        cardFill = Color.White.copy(alpha = 0.62f),
+        innerFill = Color(0xFF0E1513).copy(alpha = 0.040f),
+        innerBorder = Color(0xFF0E1513).copy(alpha = 0.085f),
+        positive = Color(0xFF0D9668),
+        warning = Color(0xFFC2780A),
+        running = Color(0xFF0277BD),
+        danger = Color(0xFFD32F2F),
+        link = Color(0xFF0D8A60)
+    )
+}
 
 @Composable
 fun LiquidGlassScreen(state: UiState, actions: UiActions) {
-    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val configuration = LocalConfiguration.current
     val dark = configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-            Configuration.UI_MODE_NIGHT_YES
-    val background = if (dark) Color.Black else Color.White
-    val foreground = if (dark) Color.White else Color.Black
-    val muted = foreground.copy(alpha = 0.56f)
-    val faint = foreground.copy(alpha = 0.10f)
+        Configuration.UI_MODE_NIGHT_YES
+    val palette = remember(dark) { glassPalette(dark) }
     val backdrop = rememberLayerBackdrop()
     val view = LocalView.current
 
@@ -91,9 +197,31 @@ fun LiquidGlassScreen(state: UiState, actions: UiActions) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(background)) {
+    val hasRunningStage = state.stages.any { it.status == StageStatus.RUNNING }
+    var liveNowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(hasRunningStage, state.busy) {
+        if (hasRunningStage || state.busy) {
+            while (true) {
+                liveNowMs = System.currentTimeMillis()
+                delay(250L)
+            }
+        }
+    }
+
+    val totalElapsedMs = remember(state.stages, liveNowMs) {
+        state.stages.sumOf { stage ->
+            if (stage.status == StageStatus.RUNNING) {
+                (liveNowMs - stage.startedAt).coerceAtLeast(0L)
+            } else {
+                stage.durationMs
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize().background(palette.background)) {
         BackgroundLayer(
-            dark = dark,
+            palette = palette,
+            tone = state.statusTone,
             backdrop = backdrop,
             modifier = Modifier.fillMaxSize()
         )
@@ -102,199 +230,218 @@ fun LiquidGlassScreen(state: UiState, actions: UiActions) {
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item { Header(foreground, muted) }
-            item {
-                StatusPanel(state, backdrop, foreground, muted, dark)
+            item(key = "header") {
+                Header(palette)
             }
-            item {
-                DevicePanel(state, actions, backdrop, foreground, muted, dark)
-            }
-            item {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    MiniStatus(
-                        "SHIZUKU",
-                        state.shizukuState,
-                        backdrop,
-                        foreground,
-                        muted,
-                        dark,
-                        Modifier.weight(1f)
-                    )
-                    MiniStatus(
-                        "KERNELSU",
-                        state.kernelState,
-                        backdrop,
-                        foreground,
-                        muted,
-                        dark,
-                        Modifier.weight(1f)
-                    )
-                }
-            }
-            item {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    GlassButton(
-                        label = "01 连接 Shizuku",
-                        primary = false,
-                        backdrop = backdrop,
-                        foreground = foreground,
-                        dark = dark,
-                        modifier = Modifier.weight(1f).height(52.dp)
-                    ) { actions.onConnectShizuku() }
-                    GlassButton(
-                        label = "02 安装 KernelSU",
-                        primary = false,
-                        backdrop = backdrop,
-                        foreground = foreground,
-                        dark = dark,
-                        modifier = Modifier.weight(1f).height(52.dp)
-                    ) { actions.onOpenKernelSu() }
-                }
-            }
-            item {
-                GlassButton(
-                    label = if (state.busy) "03 正在执行" else "03 开始提权",
-                    enabled = !state.busy,
-                    primary = true,
+            item(key = "status") {
+                StatusPanel(
+                    state = state,
+                    totalElapsedMs = totalElapsedMs,
                     backdrop = backdrop,
-                    foreground = foreground,
-                    dark = dark,
-                    modifier = Modifier.fillMaxWidth().height(60.dp)
-                ) { actions.onStartRoot() }
+                    palette = palette
+                )
+            }
+            item(key = "steps") {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    StepActionCard(
+                        step = "01",
+                        title = "SHIZUKU",
+                        value = state.shizukuState,
+                        actionHint = when {
+                            state.shizukuReady -> "已就绪 · 点此刷新"
+                            state.shizukuTone == StatusTone.WARNING && state.shizukuState == "待授权" -> "点击授予权限 ›"
+                            else -> "启动或安装 ›"
+                        },
+                        tone = state.shizukuTone,
+                        completed = state.shizukuReady,
+                        enabled = !state.busy,
+                        backdrop = backdrop,
+                        palette = palette,
+                        modifier = Modifier.weight(1f),
+                        onClick = actions::onConnectShizuku
+                    )
+                    StepActionCard(
+                        step = "02",
+                        title = BuildConfig.ROOT_MANAGER_NAME.uppercase(),
+                        value = state.kernelState,
+                        actionHint = if (state.managerInstalled || state.rootReady) {
+                            "打开管理器 ›"
+                        } else {
+                            "安装管理器 ›"
+                        },
+                        tone = state.managerTone,
+                        completed = state.managerInstalled || state.rootReady,
+                        enabled = !state.busy,
+                        backdrop = backdrop,
+                        palette = palette,
+                        modifier = Modifier.weight(1f),
+                        onClick = actions::onOpenKernelSu
+                    )
+                }
+            }
+            item(key = "primary_action") {
+                PrimaryActionButton(
+                    state = state,
+                    backdrop = backdrop,
+                    palette = palette,
+                    onClick = actions::onStartRoot
+                )
             }
             if (state.stages.isNotEmpty()) {
-                item {
-                    StageProgressPanel(state, backdrop, foreground, muted, dark)
+                item(key = "stages") {
+                    StageProgressPanel(
+                        stages = state.stages,
+                        liveNowMs = liveNowMs,
+                        totalElapsedMs = totalElapsedMs,
+                        backdrop = backdrop,
+                        palette = palette
+                    )
                 }
             }
-            item {
-                LogPanel(state, actions, backdrop, foreground, muted, dark)
+            item(key = "device") {
+                DevicePanel(
+                    state = state,
+                    actions = actions,
+                    backdrop = backdrop,
+                    palette = palette
+                )
             }
-            item {
-                Footer(muted)
+            item(key = "logs") {
+                LogPanel(
+                    state = state,
+                    actions = actions,
+                    backdrop = backdrop,
+                    palette = palette
+                )
+            }
+            item(key = "footer") {
+                Footer(palette)
             }
         }
     }
 }
 
 @Composable
-private fun Footer(
-    muted: Color
-) {
-    val uriHandler = LocalUriHandler.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            "仅用于个人设备的安全研究",
-            color = muted,
-            fontSize = 11.sp,
-            lineHeight = 18.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            "使用本应用可能存在风险，请自行评估并承担相应风险",
-            color = muted,
-            fontSize = 11.sp,
-            lineHeight = 18.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            "请勿用于非法用途",
-            color = muted,
-            fontSize = 11.sp,
-            lineHeight = 18.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            "https://github.com/superboyyy",
-            color = Color(0xFF69D7A7),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp)
-                .clickable(role = Role.Button) {
-                    uriHandler.openUri("https://github.com/superboyyy")
-                }
-        )
-        Text(
-            "HOneClick · " + APP_VERSION_LABEL,
-            color = muted,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
-        )
-    }
-}
-
-@Composable
 private fun BackgroundLayer(
-    dark: Boolean,
+    palette: GlassPalette,
+    tone: StatusTone,
     backdrop: LayerBackdrop,
     modifier: Modifier
 ) {
-    val color = if (dark) Color.White else Color.Black
+    val targetAccent = when (tone) {
+        StatusTone.READY, StatusTone.SUCCESS -> palette.positive
+        StatusTone.RUNNING -> palette.running
+        StatusTone.ERROR -> palette.danger
+        StatusTone.WARNING -> palette.warning
+        StatusTone.IDLE -> palette.running
+    }
+    val animatedAccent by animateColorAsState(
+        targetValue = targetAccent,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "bgAccent"
+    )
+    val secondaryOrb = if (palette.dark) Color(0xFF4BA3FF) else Color(0xFF56B4E9)
+    val tertiaryOrb = if (palette.dark) Color(0xFF7B6CFF) else Color(0xFF8B80F9)
+
     Box(
         modifier
-            .background(if (dark) Color.Black else Color.White)
+            .background(palette.background)
             .layerBackdrop(backdrop)
     ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val primaryAlpha = if (palette.dark) 0.24f else 0.16f
+            val secondaryAlpha = if (palette.dark) 0.18f else 0.12f
+            val tertiaryAlpha = if (palette.dark) 0.14f else 0.09f
+
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(animatedAccent.copy(alpha = primaryAlpha), Color.Transparent),
+                    center = Offset(w * 0.88f, h * 0.11f),
+                    radius = w * 0.82f
+                ),
+                radius = w * 0.82f,
+                center = Offset(w * 0.88f, h * 0.11f)
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(secondaryOrb.copy(alpha = secondaryAlpha), Color.Transparent),
+                    center = Offset(w * 0.08f, h * 0.42f),
+                    radius = w * 0.72f
+                ),
+                radius = w * 0.72f,
+                center = Offset(w * 0.08f, h * 0.42f)
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(tertiaryOrb.copy(alpha = tertiaryAlpha), Color.Transparent),
+                    center = Offset(w * 0.82f, h * 0.84f),
+                    radius = w * 0.68f
+                ),
+                radius = w * 0.68f,
+                center = Offset(w * 0.82f, h * 0.84f)
+            )
+
+            val arcColor = palette.foreground.copy(alpha = if (palette.dark) 0.06f else 0.055f)
+            val stroke = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round)
+            val upperArc = Path().apply {
+                moveTo(-w * 0.08f, h * 0.26f)
+                cubicTo(w * 0.28f, h * 0.17f, w * 0.66f, h * 0.36f, w * 1.08f, h * 0.24f)
+            }
+            drawPath(upperArc, color = arcColor, style = stroke)
+
+            val lowerArc = Path().apply {
+                moveTo(-w * 0.08f, h * 0.68f)
+                cubicTo(w * 0.32f, h * 0.59f, w * 0.70f, h * 0.79f, w * 1.08f, h * 0.64f)
+            }
+            drawPath(lowerArc, color = arcColor.copy(alpha = arcColor.alpha * 0.75f), style = stroke)
+        }
+
         Text(
-            text = "ANY",
-            color = color.copy(alpha = 0.045f),
-            fontSize = 176.sp,
+            text = "H1C",
+            color = palette.foreground.copy(alpha = if (palette.dark) 0.042f else 0.035f),
+            fontSize = 156.sp,
             fontWeight = FontWeight.Black,
-            letterSpacing = (-8).sp,
+            letterSpacing = (-6).sp,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .offset(x = 34.dp, y = 54.dp)
+                .offset(x = 22.dp, y = 42.dp)
         )
         Text(
             text = "ONE\nCLICK",
-            color = color.copy(alpha = 0.028f),
-            fontSize = 74.sp,
-            lineHeight = 68.sp,
+            color = palette.foreground.copy(alpha = if (palette.dark) 0.026f else 0.024f),
+            fontSize = 68.sp,
+            lineHeight = 64.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .offset(x = 18.dp, y = 22.dp)
+                .offset(x = 18.dp, y = 16.dp)
         )
     }
 }
 
 @Composable
-private fun Header(foreground: Color, muted: Color) {
+private fun Header(palette: GlassPalette) {
     Row(
-        Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             Modifier
-                .size(58.dp)
-                .background(foreground.copy(alpha = 0.055f), RoundedCornerShape(20.dp))
-                .border(1.dp, foreground.copy(alpha = 0.14f), RoundedCornerShape(20.dp))
-                .padding(7.dp)
+                .size(52.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(palette.innerFill)
+                .border(1.dp, palette.borderBrush(), RoundedCornerShape(17.dp))
+                .padding(6.dp)
         ) {
             Image(
                 painter = painterResource(R.drawable.ic_launcher_foreground),
@@ -302,249 +449,369 @@ private fun Header(foreground: Color, muted: Color) {
                 modifier = Modifier.fillMaxSize()
             )
         }
-        Text(
-            "HOneClick",
-            color = foreground,
-            fontSize = 34.sp,
-            lineHeight = 34.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-1.2).sp,
-            modifier = Modifier.padding(start = 15.dp)
-        )
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "HOneClick",
+                    color = palette.foreground,
+                    fontSize = 28.sp,
+                    lineHeight = 30.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.9).sp,
+                    maxLines = 1
+                )
+                Text(
+                    text = "v$APP_VERSION_LABEL · ${BuildConfig.ROOT_MANAGER_NAME}",
+                    color = palette.muted,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .clip(CapsuleShape)
+                        .background(palette.innerFill)
+                        .border(1.dp, palette.innerBorder, CapsuleShape)
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+            Text(
+                text = "酷安 @熠寻",
+                color = palette.muted,
+                fontSize = 12.sp,
+                letterSpacing = 0.2.sp,
+                modifier = Modifier.padding(top = 3.dp)
+            )
+        }
     }
-    Text(
-        "酷安 @熠寻",
-        color = muted,
-        fontSize = 13.sp,
-        letterSpacing = 0.3.sp,
-        textAlign = TextAlign.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 2.dp, bottom = 8.dp)
-    )
 }
 
 @Composable
 private fun StatusPanel(
     state: UiState,
+    totalElapsedMs: Long,
     backdrop: LayerBackdrop,
-    foreground: Color,
-    muted: Color,
-    dark: Boolean
+    palette: GlassPalette
 ) {
-    GlassCard(backdrop, foreground, dark) {
-        Eyebrow("系统状态", muted)
+    val accent = palette.colorFor(state.statusTone)
+    val badgeText = when {
+        state.busy -> "执行中 · ${formatDuration(totalElapsedMs)}"
+        state.rootReady -> "已提权"
+        state.statusTone == StatusTone.ERROR -> "未完成"
+        state.statusTone == StatusTone.READY -> "已就绪"
+        state.shizukuState == "待授权" -> "待授权"
+        else -> "待连接"
+    }
+
+    GlassCard(
+        backdrop = backdrop,
+        palette = palette,
+        elevated = true,
+        accentBorder = if (state.statusTone != StatusTone.IDLE) accent else null
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Eyebrow("系统状态", palette.muted, Modifier.weight(1f))
+            StatusBadge(
+                label = badgeText,
+                color = accent,
+                pulsing = state.busy,
+                palette = palette
+            )
+        }
+
         Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(10.dp)
-                    .background(
-                        if (state.statusActive) foreground
-                        else foreground.copy(alpha = 0.22f),
-                        CircleShape
-                    )
+
+        Text(
+            text = state.statusTitle,
+            color = palette.foreground,
+            fontSize = 23.sp,
+            lineHeight = 28.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = state.statusDetail,
+            color = palette.muted,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
+        AnimatedVisibility(
+            visible = state.busy,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(palette.running.copy(alpha = if (palette.dark) 0.12f else 0.09f))
                     .border(
                         1.dp,
-                        foreground.copy(alpha = if (state.statusActive) 0f else 0.55f),
-                        CircleShape
+                        palette.running.copy(alpha = if (palette.dark) 0.28f else 0.22f),
+                        RoundedCornerShape(12.dp)
                     )
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                state.statusTitle,
-                color = foreground,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        Text(
-            state.statusDetail,
-            color = muted,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 5.dp, bottom = 15.dp)
-        )
-        LiquidProgress(state.progress, foreground)
-    }
-}
-
-@Composable
-private fun DevicePanel(
-    state: UiState,
-    actions: UiActions,
-    backdrop: LayerBackdrop,
-    foreground: Color,
-    muted: Color,
-    dark: Boolean
-) {
-    GlassCard(backdrop, foreground, dark) {
-        Eyebrow("设备信息", muted)
-        Text(
-            state.model,
-            color = foreground,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 7.dp)
-        )
-        Spacer(Modifier.height(18.dp))
-        Eyebrow("漏洞利用", muted)
-        Row(
-            Modifier.fillMaxWidth().padding(top = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ExploitChoice.entries.forEach { choice ->
-                RouteChip(
-                    choice = choice,
-                    selected = state.exploitChoice == choice,
-                    enabled = !state.busy &&
-                        (choice != ExploitChoice.LEGACY_64560 || state.legacyAllowed),
-                    foreground = foreground,
-                    muted = muted,
-                    dark = dark,
-                    modifier = Modifier.weight(1f)
-                ) { actions.onSelectExploit(choice) }
+                    .padding(horizontal = 11.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(palette.running)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "屏幕已保持常亮 · 完整流程可能需要 10–30 分钟",
+                    color = palette.foreground.copy(alpha = 0.88f),
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp
+                )
             }
         }
-        GlassButton(
-            label = "导入 boot.img 生成配置",
-            primary = false,
-            backdrop = backdrop,
-            foreground = foreground,
-            dark = dark,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 12.dp)
-                .height(48.dp)
-        ) { actions.onImportBootImage() }
-        Text(
-            "若提权失败且当前内核不是 6.18.21-android17 版本，请尝试导入 boot.img 进行提权。",
-            color = muted,
-            fontSize = 11.sp,
-            lineHeight = 17.sp,
-            modifier = Modifier.padding(top = 8.dp)
+
+        Spacer(Modifier.height(14.dp))
+        LiquidProgress(
+            progress = state.progress,
+            accent = accent,
+            busy = state.busy,
+            palette = palette
         )
     }
 }
 
 @Composable
-private fun RouteChip(
-    choice: ExploitChoice,
-    selected: Boolean,
-    enabled: Boolean,
-    foreground: Color,
-    muted: Color,
-    dark: Boolean,
-    modifier: Modifier,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier
-            .height(38.dp)
-            .clip(CapsuleShape)
-            .background(foreground.copy(alpha = if (selected) 0.92f else 0.055f))
-            .border(
-                1.dp,
-                foreground.copy(alpha = if (selected) 0f else 0.16f),
-                CapsuleShape
-            )
-            .selectable(
-                selected = selected,
-                enabled = enabled,
-                role = Role.RadioButton,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            choice.label,
-            color = if (selected) { if (dark) Color.Black else Color.White } else muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
-@Composable
-private fun MiniStatus(
+private fun StatusBadge(
     label: String,
-    value: String,
-    backdrop: LayerBackdrop,
-    foreground: Color,
-    muted: Color,
-    dark: Boolean,
-    modifier: Modifier
+    color: Color,
+    pulsing: Boolean,
+    palette: GlassPalette
 ) {
-    GlassCard(backdrop, foreground, dark, modifier) {
-        Eyebrow(label, muted)
-        Text(
-            value,
-            color = foreground,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 7.dp)
-        )
-    }
-}
-
-@Composable
-private fun GlassCard(
-    backdrop: LayerBackdrop,
-    foreground: Color,
-    dark: Boolean,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .liquidGlass(backdrop, foreground, dark, CardShape)
-            .padding(18.dp),
-        content = content
+    val pulseTransition = rememberInfiniteTransition(label = "dotPulse")
+    val pulseAlpha by pulseTransition.animateFloat(
+        initialValue = 0.28f,
+        targetValue = 0.90f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(850, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
     )
+    Row(
+        modifier = Modifier
+            .clip(CapsuleShape)
+            .background(color.copy(alpha = if (palette.dark) 0.14f else 0.10f))
+            .border(1.dp, color.copy(alpha = if (palette.dark) 0.30f else 0.24f), CapsuleShape)
+            .padding(horizontal = 9.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = if (pulsing) pulseAlpha else 1f))
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = label,
+            color = color,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1
+        )
+    }
 }
 
 @Composable
-private fun GlassButton(
-    label: String,
-    primary: Boolean,
+private fun StepActionCard(
+    step: String,
+    title: String,
+    value: String,
+    actionHint: String,
+    tone: StatusTone,
+    completed: Boolean,
+    enabled: Boolean,
     backdrop: LayerBackdrop,
-    foreground: Color,
-    dark: Boolean,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
+    palette: GlassPalette,
+    modifier: Modifier,
     onClick: () -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val alpha = when {
-        !enabled -> 0.35f
-        pressed -> 0.52f
-        primary -> 0.20f
-        else -> 0.075f
-    }
-    Box(
-        modifier
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && enabled) 0.975f else 1f,
+        animationSpec = tween(120),
+        label = "stepScale"
+    )
+    val accent = palette.colorFor(tone)
+
+    Column(
+        modifier = modifier
             .graphicsLayer {
-                scaleX = if (pressed && enabled) 0.985f else 1f
-                scaleY = if (pressed && enabled) 0.985f else 1f
+                scaleX = scale
+                scaleY = scale
+            }
+            .alpha(if (enabled) 1f else 0.58f)
+            .liquidGlass(
+                backdrop = backdrop,
+                palette = palette,
+                shape = CardShape,
+                elevated = false,
+                accentBorder = if (completed) palette.positive else null
+            )
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick
+            )
+            .padding(horizontal = 15.dp, vertical = 14.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = step,
+                color = if (completed) palette.positive else palette.muted,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .clip(CapsuleShape)
+                    .background(
+                        if (completed) palette.positive.copy(alpha = if (palette.dark) 0.16f else 0.12f)
+                        else palette.innerFill
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = title,
+                color = palette.muted,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.1.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            if (completed) {
+                CheckIcon(
+                    color = palette.positive,
+                    modifier = Modifier.size(14.dp)
+                )
+            } else {
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = 0.85f))
+                )
+            }
+        }
+
+        Spacer(Modifier.height(9.dp))
+
+        Text(
+            text = value,
+            color = if (tone == StatusTone.IDLE) palette.foreground else accent,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = actionHint,
+            color = palette.muted,
+            fontSize = 11.5.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun PrimaryActionButton(
+    state: UiState,
+    backdrop: LayerBackdrop,
+    palette: GlassPalette,
+    onClick: () -> Unit
+) {
+    val enabled = !state.busy
+    val ready = state.shizukuReady
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && enabled) 0.98f else 1f,
+        animationSpec = tween(120),
+        label = "ctaScale"
+    )
+
+    val tint = when {
+        state.busy -> palette.running
+        state.rootReady -> palette.positive
+        ready -> palette.positive
+        else -> palette.foreground
+    }
+    val surfaceAlpha = when {
+        state.busy -> if (palette.dark) 0.14f else 0.10f
+        pressed && enabled -> if (palette.dark) 0.30f else 0.24f
+        ready -> if (palette.dark) 0.20f else 0.16f
+        else -> if (palette.dark) 0.08f else 0.06f
+    }
+    val borderColor = when {
+        state.busy -> palette.running.copy(alpha = 0.45f)
+        ready -> tint.copy(alpha = if (palette.dark) 0.62f else 0.50f)
+        else -> palette.foreground.copy(alpha = 0.18f)
+    }
+    val label = when {
+        state.busy -> "03 正在执行提权…"
+        state.rootReady -> "03 Root 已就绪 · 重新验收"
+        ready -> "03 开始提权"
+        else -> "03 开始提权（需先完成 01）"
+    }
+    val textColor = when {
+        state.busy -> palette.foreground.copy(alpha = 0.72f)
+        ready -> palette.foreground
+        else -> palette.muted
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
             }
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { CapsuleShape },
                 effects = {
                     vibrancy()
-                    blur(14.dp.toPx())
-                    lens(16.dp.toPx(), 28.dp.toPx(), chromaticAberration = true)
+                    blur(16.dp.toPx())
+                    lens(14.dp.toPx(), 26.dp.toPx(), chromaticAberration = ready && !state.busy)
                 },
                 onDrawSurface = {
-                    drawRect(foreground.copy(alpha = alpha))
+                    drawRect(tint.copy(alpha = surfaceAlpha))
                 }
             )
             .border(
-                if (primary) 1.5.dp else 1.dp,
-                foreground.copy(alpha = if (primary) 0.62f else 0.23f),
-                CapsuleShape
+                width = if (ready || state.busy) 1.5.dp else 1.dp,
+                color = borderColor,
+                shape = CapsuleShape
             )
             .clip(CapsuleShape)
             .clickable(
@@ -556,101 +823,178 @@ private fun GlassButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            label,
-            color = foreground,
-            fontSize = if (primary) 17.sp else 15.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.2.sp
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 18.dp)
+        ) {
+            if (state.busy) {
+                RunningSpinner(
+                    color = palette.running,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+            } else if (state.rootReady) {
+                CheckIcon(
+                    color = palette.positive,
+                    modifier = Modifier.size(17.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                text = label,
+                color = textColor,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.2.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
-
 @Composable
 private fun StageProgressPanel(
-    state: UiState,
+    stages: List<StageProgress>,
+    liveNowMs: Long,
+    totalElapsedMs: Long,
     backdrop: LayerBackdrop,
-    foreground: Color,
-    muted: Color,
-    dark: Boolean
+    palette: GlassPalette
 ) {
-    val total = state.stages.sumOf { it.durationMs }
-    GlassCard(backdrop, foreground, dark) {
+    val pulseTransition = rememberInfiniteTransition(label = "stagePulse")
+    val pulseAlpha by pulseTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "stageRingAlpha"
+    )
+
+    GlassCard(
+        backdrop = backdrop,
+        palette = palette,
+        modifier = Modifier.animateContentSize()
+    ) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Eyebrow("进度", muted, Modifier.weight(1f))
+            Eyebrow("执行进度", palette.muted, Modifier.weight(1f))
             Text(
-                formatDuration(total),
-                color = muted,
+                text = formatDuration(totalElapsedMs),
+                color = palette.muted,
                 fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
+
         Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
-            state.stages.forEachIndexed { index, stage ->
-                val errorColor = Color(0xFFFF7B72)
-                val statusColor = when (stage.status) {
-                    StageStatus.FAILED -> errorColor
-                    StageStatus.RUNNING -> foreground
-                    StageStatus.DONE -> muted
+            stages.forEachIndexed { index, stage ->
+                val isLast = index == stages.lastIndex
+                val stepColor = when (stage.status) {
+                    StageStatus.DONE -> palette.positive
+                    StageStatus.RUNNING -> palette.running
+                    StageStatus.FAILED -> palette.danger
                 }
+                val durationMs = if (stage.status == StageStatus.RUNNING) {
+                    (liveNowMs - stage.startedAt).coerceAtLeast(0L)
+                } else {
+                    stage.durationMs
+                }
+
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         Modifier
-                            .size(27.dp)
+                            .size(26.dp)
+                            .clip(CircleShape)
                             .background(
-                                if (stage.status == StageStatus.FAILED)
-                                    errorColor.copy(alpha = 0.16f)
-                                else foreground.copy(alpha = 0.07f),
-                                CircleShape
+                                stepColor.copy(
+                                    alpha = when (stage.status) {
+                                        StageStatus.RUNNING -> if (palette.dark) 0.20f else 0.14f
+                                        else -> if (palette.dark) 0.14f else 0.10f
+                                    }
+                                )
                             )
                             .border(
-                                1.dp,
-                                statusColor.copy(alpha = 0.35f),
-                                CircleShape
+                                width = if (stage.status == StageStatus.RUNNING) 1.5.dp else 1.dp,
+                                color = stepColor.copy(
+                                    alpha = if (stage.status == StageStatus.RUNNING) pulseAlpha else 0.42f
+                                ),
+                                shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            "${index + 1}",
-                            color = statusColor,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Text(
-                        stage.title,
-                        color = if (stage.status == StageStatus.DONE) muted else foreground,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f).padding(start = 12.dp)
-                    )
-                    Text(
                         when (stage.status) {
-                            StageStatus.RUNNING -> "进行中"
-                            StageStatus.DONE -> formatDuration(stage.durationMs)
-                            StageStatus.FAILED -> "失败 · " + formatDuration(stage.durationMs)
+                            StageStatus.DONE -> CheckIcon(
+                                color = stepColor,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            StageStatus.FAILED -> CrossIcon(
+                                color = stepColor,
+                                modifier = Modifier.size(11.dp)
+                            )
+                            StageStatus.RUNNING -> Text(
+                                text = "${index + 1}",
+                                color = stepColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = stage.title,
+                        color = if (stage.status == StageStatus.DONE) palette.muted else palette.foreground,
+                        fontSize = 13.5.sp,
+                        fontWeight = if (stage.status == StageStatus.DONE) FontWeight.Medium else FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 11.dp)
+                    )
+
+                    Text(
+                        text = when (stage.status) {
+                            StageStatus.RUNNING -> "进行中 · ${formatDuration(durationMs)}"
+                            StageStatus.DONE -> formatDuration(durationMs)
+                            StageStatus.FAILED -> "失败 · ${formatDuration(durationMs)}"
                         },
-                        color = statusColor,
+                        color = if (stage.status == StageStatus.DONE) palette.muted else stepColor,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        fontWeight = if (stage.status == StageStatus.DONE) FontWeight.Normal else FontWeight.SemiBold,
+                        maxLines = 1
                     )
                 }
-                if (index != state.stages.lastIndex) {
+
+                if (!isLast) {
                     Box(
-                        Modifier.width(27.dp).height(28.dp),
+                        modifier = Modifier
+                            .width(26.dp)
+                            .height(18.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            "↓",
-                            color = muted.copy(alpha = 0.7f),
-                            fontSize = 18.sp
+                        Box(
+                            Modifier
+                                .width(1.5.dp)
+                                .height(14.dp)
+                                .clip(CapsuleShape)
+                                .background(
+                                    if (stage.status == StageStatus.DONE) {
+                                        palette.positive.copy(alpha = 0.35f)
+                                    } else {
+                                        palette.innerBorder
+                                    }
+                                )
                         )
                     }
                 }
@@ -659,14 +1003,394 @@ private fun StageProgressPanel(
     }
 }
 
-private fun formatDuration(ms: Long): String {
-    val tenths = ((ms.coerceAtLeast(0L) + 50L) / 100L)
-    val seconds = tenths / 10L
-    return if (seconds < 60L) {
-        "$seconds.${tenths % 10L}s"
-    } else {
-        "${seconds / 60L}m ${seconds % 60L}s"
+@Composable
+private fun DevicePanel(
+    state: UiState,
+    actions: UiActions,
+    backdrop: LayerBackdrop,
+    palette: GlassPalette
+) {
+    val context = LocalContext.current
+    val matched = state.matchedKernel
+    val hasKernel = state.currentKernel.isNotBlank()
+    var kernelsExpanded by remember(matched == null && hasKernel) {
+        mutableStateOf(hasKernel && matched == null)
     }
+
+    val matchBadgeText = when {
+        matched != null -> "内核已支持"
+        hasKernel -> "未验证内核"
+        else -> "待检测"
+    }
+    val matchBadgeColor = when {
+        matched != null -> palette.positive
+        hasKernel -> palette.warning
+        else -> palette.muted
+    }
+
+    val routeSummary = when (state.exploitChoice) {
+        ExploitChoice.AUTO -> when {
+            matched != null -> "自动模式：已匹配当前内核，将优先使用 ${matched.preferredRoute.label}。"
+            hasKernel -> "自动模式：当前内核不在内置列表中，将尝试默认利用链。"
+            else -> "自动模式：连接 Shizuku 后按实际内核选择利用链。"
+        }
+        ExploitChoice.CVE_99491 -> "已手动指定 99491 利用链。"
+        ExploitChoice.CVE_98260 -> "已手动指定 98260 利用链。"
+    }
+
+    GlassCard(
+        backdrop = backdrop,
+        palette = palette,
+        modifier = Modifier.animateContentSize()
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Eyebrow("设备与利用链", palette.muted, Modifier.weight(1f))
+            StatusBadge(
+                label = matchBadgeText,
+                color = matchBadgeColor,
+                pulsing = false,
+                palette = palette
+            )
+        }
+
+        Row(
+            modifier = Modifier.padding(top = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = state.model,
+                color = palette.foreground,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (state.device.isNotBlank() && state.device != state.model) {
+                Text(
+                    text = state.device,
+                    color = palette.muted,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    modifier = Modifier.padding(bottom = 3.dp)
+                )
+            }
+        }
+
+        // Current device kernel readout
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp)
+                .clip(InnerShape)
+                .background(palette.innerFill)
+                .border(
+                    1.dp,
+                    if (matched != null) palette.positive.copy(alpha = 0.28f) else palette.innerBorder,
+                    InnerShape
+                )
+                .clickable(enabled = hasKernel, role = Role.Button) {
+                    copyToClipboard(context, "kernel", state.currentKernel)
+                    Toast.makeText(context, "已复制当前内核版本", Toast.LENGTH_SHORT).show()
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "当前内核",
+                    color = palette.muted,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                if (hasKernel) {
+                    Text(
+                        text = "点按复制",
+                        color = palette.subtle,
+                        fontSize = 10.5.sp
+                    )
+                }
+            }
+            Text(
+                text = state.currentKernel.ifBlank { "等待读取 uname -r" },
+                color = palette.foreground,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            if (matched != null) {
+                Row(
+                    modifier = Modifier.padding(top = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "可用链",
+                        color = palette.muted,
+                        fontSize = 10.5.sp
+                    )
+                    matched.routes.forEach { route ->
+                        KernelTag(
+                            label = if (route == matched.preferredRoute && matched.routes.size > 1) {
+                                "${route.label} · 推荐"
+                            } else {
+                                route.label
+                            },
+                            highlighted = route == matched.preferredRoute,
+                            accent = palette.positive,
+                            palette = palette
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+        Eyebrow("漏洞利用", palette.muted)
+        Row(
+            Modifier.fillMaxWidth().padding(top = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ExploitChoice.entries.forEach { choice ->
+                val compatible = choice != ExploitChoice.CVE_99491 || state.supports99491
+                RouteChip(
+                    label = choice.label,
+                    selected = state.exploitChoice == choice,
+                    enabled = !state.busy && compatible,
+                    incompatible = !compatible,
+                    palette = palette,
+                    modifier = Modifier.weight(1f)
+                ) { actions.onSelectExploit(choice) }
+            }
+        }
+        Text(
+            text = routeSummary,
+            color = palette.muted,
+            fontSize = 11.5.sp,
+            lineHeight = 17.sp,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+
+        // Collapsible supported kernels list
+        Spacer(Modifier.height(12.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(palette.innerBorder)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(role = Role.Button) { kernelsExpanded = !kernelsExpanded }
+                .padding(top = 11.dp, bottom = if (kernelsExpanded) 8.dp else 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Eyebrow(
+                text = "已验证内核（${SupportedKernels.entries.size}）",
+                color = palette.muted,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = if (kernelsExpanded) "收起" else "展开查看",
+                color = palette.foreground.copy(alpha = 0.78f),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        AnimatedVisibility(
+            visible = kernelsExpanded,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SupportedKernels.entries.forEach { spec ->
+                    KernelRow(
+                        spec = spec,
+                        isCurrentDevice = state.currentKernel == spec.version,
+                        palette = palette
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteChip(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    incompatible: Boolean,
+    palette: GlassPalette,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    val bg = when {
+        selected -> palette.foreground.copy(alpha = 0.92f)
+        incompatible -> palette.innerFill.copy(alpha = palette.innerFill.alpha * 0.55f)
+        else -> palette.innerFill
+    }
+    val textColor = when {
+        selected -> if (palette.dark) Color(0xFF060A09) else Color.White
+        incompatible -> palette.subtle
+        else -> palette.muted
+    }
+
+    Box(
+        modifier
+            .height(40.dp)
+            .clip(CapsuleShape)
+            .background(bg)
+            .border(
+                1.dp,
+                if (selected) Color.Transparent else palette.innerBorder,
+                CapsuleShape
+            )
+            .selectable(
+                selected = selected,
+                enabled = enabled,
+                role = Role.RadioButton,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = if (incompatible) "$label · 不适用" else label,
+            color = textColor,
+            fontSize = if (incompatible) 11.sp else 12.5.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun KernelRow(
+    spec: SupportedKernelSpec,
+    isCurrentDevice: Boolean,
+    palette: GlassPalette
+) {
+    val borderColor = if (isCurrentDevice) {
+        palette.positive.copy(alpha = if (palette.dark) 0.42f else 0.34f)
+    } else {
+        palette.innerBorder
+    }
+    val fillColor = if (isCurrentDevice) {
+        palette.positive.copy(alpha = if (palette.dark) 0.10f else 0.07f)
+    } else {
+        palette.innerFill
+    }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(InnerShape)
+            .background(fillColor)
+            .border(1.dp, borderColor, InnerShape)
+            .padding(horizontal = 11.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isCurrentDevice) palette.positive.copy(alpha = 0.20f)
+                    else palette.foreground.copy(alpha = if (palette.dark) 0.08f else 0.06f)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isCurrentDevice) {
+                CheckIcon(color = palette.positive, modifier = Modifier.size(13.dp))
+            } else {
+                Text(
+                    text = "${spec.index}",
+                    color = palette.foreground,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = spec.version,
+                color = palette.foreground,
+                fontSize = 10.5.sp,
+                lineHeight = 15.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Row(
+                Modifier.padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isCurrentDevice) {
+                    KernelTag(
+                        label = "当前设备",
+                        highlighted = true,
+                        accent = palette.positive,
+                        palette = palette
+                    )
+                }
+                spec.routes.forEach { route ->
+                    KernelTag(
+                        label = route.label,
+                        highlighted = route == spec.preferredRoute,
+                        accent = if (isCurrentDevice) palette.positive else palette.foreground,
+                        palette = palette
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KernelTag(
+    label: String,
+    highlighted: Boolean,
+    accent: Color,
+    palette: GlassPalette
+) {
+    val color = if (highlighted) accent else palette.muted
+    Text(
+        text = label,
+        color = color,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.2.sp,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(CapsuleShape)
+            .background(
+                color.copy(alpha = if (highlighted) (if (palette.dark) 0.14f else 0.10f) else 0.06f)
+            )
+            .border(
+                1.dp,
+                color.copy(alpha = if (highlighted) 0.30f else 0.12f),
+                CapsuleShape
+            )
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    )
 }
 
 @Composable
@@ -674,63 +1398,351 @@ private fun LogPanel(
     state: UiState,
     actions: UiActions,
     backdrop: LayerBackdrop,
-    foreground: Color,
-    muted: Color,
-    dark: Boolean
+    palette: GlassPalette
 ) {
+    val context = LocalContext.current
+    var errorsOnly by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
+    var copied by remember { mutableStateOf(false) }
+
+    val displayed = remember(state.logEntries, errorsOnly) {
+        if (errorsOnly) state.logEntries.filter { it.isError } else state.logEntries
+    }
     val scroll = rememberScrollState()
-    LaunchedEffect(state.logs) {
+
+    LaunchedEffect(displayed.size) {
         scroll.animateScrollTo(scroll.maxValue)
     }
-    GlassCard(backdrop, foreground, dark) {
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1800L)
+            copied = false
+        }
+    }
+
+    GlassCard(
+        backdrop = backdrop,
+        palette = palette,
+        modifier = Modifier.animateContentSize()
+    ) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Eyebrow("错误日志", muted, Modifier.weight(1f))
-            Text(
-                "清空",
-                color = foreground,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .clip(CapsuleShape)
-                    .clickable(role = Role.Button, onClick = actions::onClearLogs)
-                    .padding(horizontal = 9.dp, vertical = 5.dp)
-            )
+            Eyebrow("运行日志", palette.muted, Modifier.weight(1f))
+            if (state.errorCount > 0) {
+                ActionPill(
+                    label = if (errorsOnly) "全部" else "错误 ${state.errorCount}",
+                    color = if (errorsOnly) palette.foreground else palette.danger,
+                    palette = palette
+                ) { errorsOnly = !errorsOnly }
+                Spacer(Modifier.width(6.dp))
+            }
+            if (displayed.isNotEmpty()) {
+                ActionPill(
+                    label = if (copied) "已复制" else "复制",
+                    color = if (copied) palette.positive else palette.foreground,
+                    palette = palette
+                ) {
+                    val plain = displayed.joinToString("\n") { "[${it.timestamp}] ${it.message}" }
+                    copyToClipboard(context, "HOneClick Logs", plain)
+                    copied = true
+                }
+                Spacer(Modifier.width(6.dp))
+                ActionPill(
+                    label = if (expanded) "收起" else "展开",
+                    color = palette.muted,
+                    palette = palette
+                ) { expanded = !expanded }
+                Spacer(Modifier.width(6.dp))
+                ActionPill(
+                    label = "清空",
+                    color = palette.muted,
+                    palette = palette,
+                    onClick = actions::onClearLogs
+                )
+            }
         }
-        SelectionContainer {
-            Text(
-                text = state.logs.ifBlank { "暂无错误" },
-                color = if (state.logs.isBlank()) muted else Color(0xFFFF8A80),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.5.sp,
-                lineHeight = 18.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(if (state.logs.isBlank()) 56.dp else 112.dp)
-                    .padding(top = 11.dp)
-                    .verticalScroll(scroll)
-            )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp)
+                .clip(InnerShape)
+                .background(palette.innerFill)
+                .border(
+                    1.dp,
+                    if (state.errorCount > 0) palette.danger.copy(alpha = 0.22f) else palette.innerBorder,
+                    InnerShape
+                )
+                .heightIn(
+                    min = if (displayed.isEmpty()) 54.dp else 104.dp,
+                    max = if (expanded) 300.dp else 152.dp
+                )
+                .verticalScroll(scroll)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            if (displayed.isEmpty()) {
+                Text(
+                    text = if (errorsOnly) "暂无错误日志" else "等待执行，运行记录与错误信息会实时显示在这里",
+                    color = palette.muted,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.5.sp,
+                    lineHeight = 18.sp
+                )
+            } else {
+                SelectionContainer {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        displayed.forEach { entry ->
+                            val lineColor = when {
+                                entry.isError -> palette.danger
+                                entry.isSuccess -> palette.positive
+                                else -> palette.foreground.copy(alpha = 0.80f)
+                            }
+                            Text(
+                                text = "${entry.timestamp}  ${entry.message}",
+                                color = lineColor,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                lineHeight = 16.5.sp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun LiquidProgress(progress: Float, color: Color) {
+private fun ActionPill(
+    label: String,
+    color: Color,
+    palette: GlassPalette,
+    onClick: () -> Unit
+) {
+    Text(
+        text = label,
+        color = color,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(CapsuleShape)
+            .background(palette.innerFill)
+            .border(1.dp, palette.innerBorder, CapsuleShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 5.dp)
+    )
+}
+
+@Composable
+private fun Footer(palette: GlassPalette) {
+    val uriHandler = LocalUriHandler.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "仅用于个人设备的安全研究，请勿用于非法用途",
+            color = palette.muted,
+            fontSize = 11.sp,
+            lineHeight = 17.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "使用本应用可能存在风险，请自行评估并承担相应风险",
+            color = palette.muted,
+            fontSize = 11.sp,
+            lineHeight = 17.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Box(
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .clip(CapsuleShape)
+                .clickable(role = Role.Button) {
+                    uriHandler.openUri("https://github.com/superboyyy")
+                }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "github.com/superboyyy",
+                color = palette.link,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Text(
+            text = "HOneClick · $APP_VERSION_LABEL · ${BuildConfig.ROOT_MANAGER_NAME}",
+            color = palette.subtle,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun GlassCard(
+    backdrop: LayerBackdrop,
+    palette: GlassPalette,
+    modifier: Modifier = Modifier,
+    elevated: Boolean = false,
+    accentBorder: Color? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .liquidGlass(backdrop, palette, CardShape, elevated, accentBorder)
+            .padding(17.dp),
+        content = content
+    )
+}
+
+@Composable
+private fun LiquidProgress(
+    progress: Float,
+    accent: Color,
+    busy: Boolean,
+    palette: GlassPalette
+) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = (progress.coerceIn(0f, 100f) / 100f).coerceAtLeast(0.03f),
+        animationSpec = tween(durationMillis = 480, easing = FastOutSlowInEasing),
+        label = "progressFill"
+    )
+    val barColor by animateColorAsState(
+        targetValue = accent,
+        animationSpec = tween(durationMillis = 400),
+        label = "progressColor"
+    )
+    val shimmerTransition = rememberInfiniteTransition(label = "progressShimmer")
+    val shimmerOffset by shimmerTransition.animateFloat(
+        initialValue = -0.35f,
+        targetValue = 1.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerX"
+    )
+
     Box(
         Modifier
             .fillMaxWidth()
             .height(8.dp)
             .clip(CapsuleShape)
-            .background(color.copy(alpha = 0.075f))
+            .background(palette.foreground.copy(alpha = if (palette.dark) 0.09f else 0.08f))
     ) {
-        Box(
+        Canvas(
             Modifier
-                .fillMaxWidth(progress.coerceIn(0f, 100f) / 100f)
+                .fillMaxWidth(animatedProgress)
                 .height(8.dp)
                 .clip(CapsuleShape)
-                .background(color.copy(alpha = 0.88f))
+        ) {
+            drawRect(color = barColor.copy(alpha = 0.88f))
+            if (busy && size.width > 0f) {
+                val centerX = size.width * shimmerOffset
+                val span = size.width * 0.45f
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = 0.42f),
+                            Color.Transparent
+                        ),
+                        startX = centerX - span,
+                        endX = centerX + span
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CheckIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val path = Path().apply {
+            moveTo(size.width * 0.18f, size.height * 0.52f)
+            lineTo(size.width * 0.42f, size.height * 0.76f)
+            lineTo(size.width * 0.84f, size.height * 0.26f)
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(
+                width = (size.minDimension * 0.16f).coerceAtLeast(1.8.dp.toPx()),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+    }
+}
+
+@Composable
+private fun CrossIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val stroke = Stroke(
+            width = (size.minDimension * 0.18f).coerceAtLeast(1.8.dp.toPx()),
+            cap = StrokeCap.Round
+        )
+        val inset = size.minDimension * 0.2f
+        drawLine(
+            color = color,
+            start = Offset(inset, inset),
+            end = Offset(size.width - inset, size.height - inset),
+            strokeWidth = stroke.width,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width - inset, inset),
+            end = Offset(inset, size.height - inset),
+            strokeWidth = stroke.width,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+@Composable
+private fun RunningSpinner(color: Color, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "spinner")
+    val angle by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 950, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "spinAngle"
+    )
+    Canvas(modifier) {
+        val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+        drawArc(
+            color = color.copy(alpha = 0.22f),
+            startAngle = 0f,
+            sweepAngle = 360f,
+            useCenter = false,
+            style = stroke
+        )
+        drawArc(
+            color = color,
+            startAngle = angle,
+            sweepAngle = 105f,
+            useCenter = false,
+            style = stroke
         )
     }
 }
@@ -742,11 +1754,13 @@ private fun Eyebrow(
     modifier: Modifier = Modifier
 ) {
     Text(
-        text,
+        text = text,
         color = color,
-        fontSize = 10.sp,
+        fontSize = 10.5.sp,
         fontWeight = FontWeight.Bold,
-        letterSpacing = 1.6.sp,
+        letterSpacing = 1.4.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier
     )
 }
@@ -756,19 +1770,20 @@ private fun Text(
     text: String,
     color: Color,
     modifier: Modifier = Modifier,
-    fontSize: androidx.compose.ui.unit.TextUnit =
-        androidx.compose.ui.unit.TextUnit.Unspecified,
+    fontSize: TextUnit = TextUnit.Unspecified,
     fontWeight: FontWeight? = null,
     fontFamily: FontFamily? = null,
-    letterSpacing: androidx.compose.ui.unit.TextUnit =
-        androidx.compose.ui.unit.TextUnit.Unspecified,
-    lineHeight: androidx.compose.ui.unit.TextUnit =
-        androidx.compose.ui.unit.TextUnit.Unspecified,
-    textAlign: TextAlign? = null
+    letterSpacing: TextUnit = TextUnit.Unspecified,
+    lineHeight: TextUnit = TextUnit.Unspecified,
+    textAlign: TextAlign? = null,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip
 ) {
     BasicText(
         text = text,
         modifier = modifier,
+        maxLines = maxLines,
+        overflow = overflow,
         style = TextStyle(
             color = color,
             fontSize = fontSize,
@@ -783,31 +1798,50 @@ private fun Text(
 
 private fun Modifier.liquidGlass(
     backdrop: LayerBackdrop,
-    foreground: Color,
-    dark: Boolean,
-    shape: RoundedCornerShape
+    palette: GlassPalette,
+    shape: RoundedCornerShape,
+    elevated: Boolean = false,
+    accentBorder: Color? = null
 ): Modifier =
     drawBackdrop(
         backdrop = backdrop,
         shape = { shape },
         effects = {
             vibrancy()
-            blur(18.dp.toPx())
-            lens(18.dp.toPx(), 34.dp.toPx(), chromaticAberration = true)
+            blur((if (elevated) 18 else 14).dp.toPx())
+            lens(
+                refractionHeight = (if (elevated) 16 else 10).dp.toPx(),
+                refractionAmount = (if (elevated) 30 else 20).dp.toPx(),
+                chromaticAberration = elevated
+            )
         },
         onDrawSurface = {
-            drawRect(
-                if (dark) Color.White.copy(alpha = 0.065f)
-                else Color.Black.copy(alpha = 0.04f)
-            )
+            drawRect(palette.cardFill)
         }
     )
         .border(
-            1.dp,
-            foreground.copy(alpha = 0.16f),
-            shape
+            width = 1.dp,
+            brush = palette.borderBrush(accent = accentBorder, elevated = elevated),
+            shape = shape
         )
         .clip(shape)
+
+private fun formatDuration(ms: Long): String {
+    val tenths = ((ms.coerceAtLeast(0L) + 50L) / 100L)
+    val seconds = tenths / 10L
+    return if (seconds < 60L) {
+        "$seconds.${tenths % 10L}s"
+    } else {
+        val mins = seconds / 60L
+        val rem = seconds % 60L
+        "${mins}m ${rem}s"
+    }
+}
+
+private fun copyToClipboard(context: Context, label: String, text: String) {
+    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+}
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this

@@ -1,9 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="launcher_background">#071210</color>
-    <color name="window_background">#FFFFFF</color>
-    <color name="ink">#F5FBFA</color>
-    <color name="muted_ink">#A7B7B3</color>
-    <color name="liquid_green">#86F5BC</color>
-    <color name="liquid_blue">#72CFFF</color>
+    <color name="window_background">#F5F7F8</color>
+    <color name="liquid_green">#0D9668</color>
 </resources>

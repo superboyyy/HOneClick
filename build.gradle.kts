@@ -22,8 +22,8 @@ android {
         applicationId = "com.aiden.honeclick"
         minSdk = 29
         targetSdk = 35
-        versionCode = 63
-        versionName = "2.0 Beta 6"
+        versionCode = 64
+        versionName = "2.0"
     }
 
     compileOptions {
@@ -33,7 +33,43 @@ android {
 
     buildFeatures {
         compose = true
-        buildConfig = false
+        buildConfig = true
+    }
+
+    flavorDimensions += "manager"
+    productFlavors {
+        create("kernelsu") {
+            dimension = "manager"
+            buildConfigField("String", "ROOT_MANAGER_PACKAGE", "\"me.weishu.kernelsu\"")
+            buildConfigField("long", "ROOT_MANAGER_VERSION_CODE", "32680L")
+            buildConfigField("String", "ROOT_MANAGER_CERT_SHA256",
+                "\"c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6\"")
+            buildConfigField("String", "ROOT_MANAGER_ASSET_NAME", "\"KernelSUManager.apk\"")
+            buildConfigField("String", "ROOT_MANAGER_ASSET_SHA256",
+                "\"b4a059ace71de2fa65cc7f12b1c58d55fc23ab25e057ee4230ce779742abe450\"")
+            buildConfigField("String", "ROOT_MANAGER_NAME", "\"KernelSU\"")
+            buildConfigField("String", "ROOT_MANAGER_LKM_ASSET", "\"ksu-template-117.ko\"")
+            buildConfigField("String", "ROOT_MANAGER_SYMS_ASSET", "\"ko_syms-117.txt\"")
+            applicationIdSuffix = ".kernelsu"
+            versionNameSuffix = "-KernelSU"
+            manifestPlaceholders["appName"] = "HOneClick KernelSU"
+        }
+        create("sukisu") {
+            dimension = "manager"
+            buildConfigField("String", "ROOT_MANAGER_PACKAGE", "\"com.sukisu.ultra\"")
+            buildConfigField("long", "ROOT_MANAGER_VERSION_CODE", "41150L")
+            buildConfigField("String", "ROOT_MANAGER_CERT_SHA256",
+                "\"947ae944f3de4ed4c21a7e4f7953ecf351bfa2b36239da37a34111ad29993eef\"")
+            buildConfigField("String", "ROOT_MANAGER_ASSET_NAME", "\"SukiSUManager.apk\"")
+            buildConfigField("String", "ROOT_MANAGER_ASSET_SHA256",
+                "\"6fe64e7bcf9fd768c58f46afea2f27ee9fb85d2783472a7e81334df21e700636\"")
+            buildConfigField("String", "ROOT_MANAGER_NAME", "\"SukiSU\"")
+            buildConfigField("String", "ROOT_MANAGER_LKM_ASSET", "\"sukisu-template-117.ko\"")
+            buildConfigField("String", "ROOT_MANAGER_SYMS_ASSET", "\"ko_syms-sukisu117.txt\"")
+            applicationIdSuffix = ".uipreview"
+            versionNameSuffix = "-ui"
+            manifestPlaceholders["appName"] = "HOneClick UI"
+        }
     }
 
     sourceSets {

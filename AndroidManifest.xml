@@ -6,11 +6,12 @@
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
         <package android:name="me.weishu.kernelsu" />
+        <package android:name="com.sukisu.ultra" />
     </queries>
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="HOneClick"
+        android:label="${appName}"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/AppTheme">
         <provider
@@ -33,6 +34,7 @@
             android:value="true" />
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
