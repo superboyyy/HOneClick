@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -73,6 +74,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
@@ -126,9 +128,9 @@ private data class GlassPalette(
 
     fun borderBrush(elevated: Boolean = false): Brush {
         val top = if (dark) {
-            Color.White.copy(alpha = if (elevated) 0.24f else 0.18f)
+            Color.White.copy(alpha = if (elevated) 0.25f else 0.18f)
         } else {
-            Color.Black.copy(alpha = if (elevated) 0.16f else 0.12f)
+            Color.White.copy(alpha = 0.92f)
         }
         val mid = if (dark) {
             Color.White.copy(alpha = 0.10f)
@@ -147,11 +149,11 @@ private data class GlassPalette(
 private fun glassPalette(dark: Boolean): GlassPalette = if (dark) {
     GlassPalette(
         dark = true,
-        background = Color.Black,
+        background = Color(0xFF070504),
         foreground = Color.White,
-        muted = Color.White.copy(alpha = 0.56f),
-        subtle = Color.White.copy(alpha = 0.36f),
-        cardFill = Color.White.copy(alpha = 0.065f),
+        muted = Color.White.copy(alpha = 0.58f),
+        subtle = Color.White.copy(alpha = 0.38f),
+        cardFill = Color.White.copy(alpha = 0.068f),
         innerFill = Color.White.copy(alpha = 0.050f),
         innerBorder = Color.White.copy(alpha = 0.10f),
         positive = Color(0xFF4ADE9F),
@@ -163,13 +165,13 @@ private fun glassPalette(dark: Boolean): GlassPalette = if (dark) {
 } else {
     GlassPalette(
         dark = false,
-        background = Color.White,
-        foreground = Color.Black,
-        muted = Color.Black.copy(alpha = 0.56f),
-        subtle = Color.Black.copy(alpha = 0.36f),
-        cardFill = Color.Black.copy(alpha = 0.040f),
-        innerFill = Color.Black.copy(alpha = 0.038f),
-        innerBorder = Color.Black.copy(alpha = 0.085f),
+        background = Color(0xFFFFFBF9),
+        foreground = Color(0xFF141110),
+        muted = Color(0xFF141110).copy(alpha = 0.56f),
+        subtle = Color(0xFF141110).copy(alpha = 0.36f),
+        cardFill = Color.White.copy(alpha = 0.62f),
+        innerFill = Color(0xFF141110).copy(alpha = 0.038f),
+        innerBorder = Color(0xFF141110).copy(alpha = 0.085f),
         positive = Color(0xFF0D9668),
         warning = Color(0xFFC2780A),
         running = Color(0xFF0277BD),
@@ -180,15 +182,18 @@ private fun glassPalette(dark: Boolean): GlassPalette = if (dark) {
 
 @Composable
 fun LiquidGlassScreen(state: UiState, actions: UiActions) {
-    val palette = remember { glassPalette(dark = true) }
+    val configuration = LocalConfiguration.current
+    val dark = configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+        Configuration.UI_MODE_NIGHT_YES
+    val palette = remember(dark) { glassPalette(dark) }
     val backdrop = rememberLayerBackdrop()
     val view = LocalView.current
 
     SideEffect {
         val activity = view.context.findActivity() ?: return@SideEffect
         WindowCompat.getInsetsController(activity.window, view).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
         }
     }
 
@@ -331,7 +336,112 @@ private fun BackgroundLayer(
         modifier
             .background(palette.background)
             .layerBackdrop(backdrop)
-    )
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+
+            if (palette.dark) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFF140A07),
+                            0.38f to Color(0xFF090504),
+                            1.0f to Color(0xFF000000)
+                        )
+                    )
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFFF05A32).copy(alpha = 0.28f),
+                            0.45f to Color(0xFFD64021).copy(alpha = 0.11f),
+                            1.0f to Color.Transparent
+                        ),
+                        center = Offset(w * 0.18f, h * 0.08f),
+                        radius = w * 0.90f
+                    ),
+                    radius = w * 0.90f,
+                    center = Offset(w * 0.18f, h * 0.08f)
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFFFF8A50).copy(alpha = 0.16f),
+                            0.50f to Color(0xFFE0522A).copy(alpha = 0.06f),
+                            1.0f to Color.Transparent
+                        ),
+                        center = Offset(w * 0.92f, h * 0.42f),
+                        radius = w * 0.82f
+                    ),
+                    radius = w * 0.82f,
+                    center = Offset(w * 0.92f, h * 0.42f)
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFFC83E20).copy(alpha = 0.15f),
+                            0.55f to Color(0xFF8C2615).copy(alpha = 0.05f),
+                            1.0f to Color.Transparent
+                        ),
+                        center = Offset(w * 0.16f, h * 0.86f),
+                        radius = w * 0.78f
+                    ),
+                    radius = w * 0.78f,
+                    center = Offset(w * 0.16f, h * 0.86f)
+                )
+            } else {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFFFFF4EE),
+                            0.42f to Color(0xFFFFFBF9),
+                            1.0f to Color(0xFFFFF5EE)
+                        )
+                    )
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFFFF8A50).copy(alpha = 0.28f),
+                            0.48f to Color(0xFFF05A32).copy(alpha = 0.10f),
+                            1.0f to Color.Transparent
+                        ),
+                        center = Offset(w * 0.18f, h * 0.08f),
+                        radius = w * 0.90f
+                    ),
+                    radius = w * 0.90f,
+                    center = Offset(w * 0.18f, h * 0.08f)
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFFFFA570).copy(alpha = 0.22f),
+                            0.52f to Color(0xFFF57644).copy(alpha = 0.07f),
+                            1.0f to Color.Transparent
+                        ),
+                        center = Offset(w * 0.92f, h * 0.42f),
+                        radius = w * 0.82f
+                    ),
+                    radius = w * 0.82f,
+                    center = Offset(w * 0.92f, h * 0.42f)
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFFF06A35).copy(alpha = 0.15f),
+                            0.55f to Color(0xFFFF9B6A).copy(alpha = 0.05f),
+                            1.0f to Color.Transparent
+                        ),
+                        center = Offset(w * 0.16f, h * 0.86f),
+                        radius = w * 0.78f
+                    ),
+                    radius = w * 0.78f,
+                    center = Offset(w * 0.16f, h * 0.86f)
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -642,28 +752,17 @@ private fun PrimaryActionButton(
         label = "ctaScale"
     )
 
-    val iconOrangeStart = Color(0xFFF36B39)
-    val iconOrangeEnd = Color(0xFFD64021)
     val surfaceAlpha = when {
-        state.busy -> 0.30f
-        pressed && enabled -> 0.72f
-        ready -> 0.88f
-        else -> 0.22f
+        state.busy -> if (palette.dark) 0.08f else 0.45f
+        pressed && enabled -> if (palette.dark) 0.24f else 0.78f
+        ready -> if (palette.dark) 0.16f else 0.72f
+        else -> if (palette.dark) 0.065f else 0.48f
     }
-    val borderBrush = when {
-        ready && !state.busy -> Brush.verticalGradient(
-            listOf(
-                Color(0xFFFFB899).copy(alpha = 0.56f),
-                Color(0xFFF05A32).copy(alpha = 0.32f),
-                Color(0xFFB52F21).copy(alpha = 0.40f)
-            )
-        )
-        else -> Brush.verticalGradient(
-            listOf(
-                Color(0xFFF05A32).copy(alpha = 0.42f),
-                Color(0xFFD64021).copy(alpha = 0.22f)
-            )
-        )
+    val surfaceColor = if (palette.dark) Color.White else Color.White
+    val borderColor = when {
+        state.busy -> palette.foreground.copy(alpha = 0.20f)
+        ready -> palette.foreground.copy(alpha = if (palette.dark) 0.46f else 0.22f)
+        else -> palette.foreground.copy(alpha = 0.14f)
     }
     val label = when {
         state.busy -> "03 正在执行提权…"
@@ -672,9 +771,9 @@ private fun PrimaryActionButton(
         else -> "03 开始提权（需先完成 01）"
     }
     val textColor = when {
-        state.busy -> Color.White.copy(alpha = 0.78f)
-        ready -> Color.White
-        else -> Color.White.copy(alpha = 0.62f)
+        state.busy -> palette.foreground.copy(alpha = 0.64f)
+        ready -> palette.foreground
+        else -> palette.muted
     }
 
     Box(
@@ -691,22 +790,15 @@ private fun PrimaryActionButton(
                 effects = {
                     vibrancy()
                     blur(16.dp.toPx())
-                    lens(14.dp.toPx(), 26.dp.toPx(), chromaticAberration = false)
+                    lens(14.dp.toPx(), 26.dp.toPx(), chromaticAberration = ready && !state.busy)
                 },
                 onDrawSurface = {
-                    drawRect(
-                        brush = Brush.horizontalGradient(
-                            listOf(
-                                iconOrangeStart.copy(alpha = surfaceAlpha),
-                                iconOrangeEnd.copy(alpha = surfaceAlpha)
-                            )
-                        )
-                    )
+                    drawRect(surfaceColor.copy(alpha = surfaceAlpha))
                 }
             )
             .border(
                 width = if (ready || state.busy) 1.25.dp else 1.dp,
-                brush = borderBrush,
+                color = borderColor,
                 shape = CapsuleShape
             )
             .clip(CapsuleShape)
@@ -726,13 +818,13 @@ private fun PrimaryActionButton(
         ) {
             if (state.busy) {
                 RunningSpinner(
-                    color = Color.White,
+                    color = palette.running,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(Modifier.width(10.dp))
             } else if (state.rootReady) {
                 CheckIcon(
-                    color = Color.White,
+                    color = palette.positive,
                     modifier = Modifier.size(17.dp)
                 )
                 Spacer(Modifier.width(8.dp))
