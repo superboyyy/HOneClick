@@ -363,34 +363,15 @@ private fun Header(palette: GlassPalette) {
         }
         Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "HOneClick",
-                    color = palette.foreground,
-                    fontSize = 28.sp,
-                    lineHeight = 30.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.9).sp,
-                    maxLines = 1
-                )
-                Text(
-                    text = "v$APP_VERSION_LABEL · ${BuildConfig.ROOT_MANAGER_NAME}",
-                    color = palette.muted,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .clip(CapsuleShape)
-                        .background(palette.innerFill)
-                        .border(1.dp, palette.innerBorder, CapsuleShape)
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                )
-            }
+            Text(
+                text = "HOneClick",
+                color = palette.foreground,
+                fontSize = 28.sp,
+                lineHeight = 30.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.9).sp,
+                maxLines = 1
+            )
             Text(
                 text = "酷安 @熠寻",
                 color = palette.muted,
@@ -1476,7 +1457,7 @@ private fun Footer(palette: GlassPalette) {
             )
         }
         Text(
-            text = "HOneClick · $APP_VERSION_LABEL · ${BuildConfig.ROOT_MANAGER_NAME}",
+            text = "HOneClick · $APP_VERSION_LABEL",
             color = palette.subtle,
             fontFamily = FontFamily.Monospace,
             fontSize = 10.5.sp,
