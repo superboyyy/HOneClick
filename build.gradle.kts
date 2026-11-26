@@ -66,9 +66,7 @@ android {
             buildConfigField("String", "ROOT_MANAGER_NAME", "\"SukiSU\"")
             buildConfigField("String", "ROOT_MANAGER_LKM_ASSET", "\"sukisu-template-117.ko\"")
             buildConfigField("String", "ROOT_MANAGER_SYMS_ASSET", "\"ko_syms-sukisu117.txt\"")
-            applicationIdSuffix = ".uipreview"
-            versionNameSuffix = "-ui"
-            manifestPlaceholders["appName"] = "HOneClick UI"
+            manifestPlaceholders["appName"] = "HOneClick"
         }
     }
 
