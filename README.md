@@ -15,7 +15,7 @@ English summary: HOneClick is an unofficial Honor temporary-root research tool w
 - 默认路由：AUTO 在 117 上选择 CVE-2026-99491，在 109/115 上选择 CVE-2026-98260；可手动切换
 - 98260 引擎按实际 `uname -r` 选择 109、115 或 117 内核配置
 - 99491 仅支持 117 内核；默认使用固定目标 `selinux_state-7`（`--no-avc`），模块在 pwn 进程内用 SukiSU `ko_patch` 补丁；98260 保留为 117 的备选
-- 对应内核的机器都可以执行，目前在 Magic9 Pro Max 和 Win2 上验证。
+- 对应内核的机器都可以尝试，目前在 Magic9 Pro Max 和 Win2 上验证。
 - root 类型：当前启动有效的临时 root，重启后失效
 - 不包含：bootloader 解锁、刷写分区、永久 root
 
