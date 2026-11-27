@@ -761,6 +761,7 @@ public final class MainActivity extends ComponentActivity implements UiActions {
     }
 
     private void finishRoot(ExploitChoice route, boolean reused) {
+        cleanupStagingAfterSuccess();
         setKernelState("运行中", StatusTone.SUCCESS);
         stage("完成", 100);
         ui.post(() -> uiState.completeCurrentStage());
@@ -771,6 +772,29 @@ public final class MainActivity extends ComponentActivity implements UiActions {
                 : "🎉 root 成功；利用链 " + route.getLabel()
                         + "，" + MANAGER_NAME + " 管理器已可管理授权与模块。");
         launchPackage(MANAGER);
+    }
+
+    private void cleanupStagingAfterSuccess() {
+        String work = WORK;
+        StringBuilder cmd = new StringBuilder(
+                "rm -f /data/local/tmp/exp117 /data/local/tmp/ko_patch"
+                        + " /data/local/tmp/ko_syms-117.txt /data/local/tmp/ksu-template-117.ko"
+                        + " /data/local/tmp/ksu-patched.ko /data/local/tmp/ksud"
+                        + " /data/local/tmp/root_stage.sh");
+        if (work != null && work.matches("^/data/local/tmp/honor-run-[0-9a-fA-F]+$")) {
+            cmd.append(" && rm -rf '").append(work).append("'");
+        }
+        String rmCmd = cmd.toString();
+        try {
+            String out = probe("timeout 15 /system/bin/su -c \"" + rmCmd
+                    + "\" 2>/dev/null || (" + rmCmd + ")").trim();
+            if (!out.isEmpty()) {
+                log("清理提示：" + out);
+            }
+            log("已清理本次临时目录与暂存文件。");
+        } catch (Throwable t) {
+            log("清理临时文件失败（不影响 Root）：" + t);
+        }
     }
 
     private String initializeKernelSU() throws Exception {
