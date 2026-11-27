@@ -14,7 +14,7 @@ MODE=check
 LOAD_ONLY=1
 SPRAY=512
 CLEANUP=0
-AVC_ARG=--avc-only
+AVC_ARG=--no-avc
 MANAGER=${MANAGER:-sukisu}
 KERNEL_EXPECTED=6.18.21-android17-5-gfee2325de189-abogki572422516-4k
 ASSETS="$ROOT/assets"
@@ -36,7 +36,8 @@ Usage: run-real-99491.sh [options]
   --load-only       load the SukiSU LKM only; do not run ksud install
   --prepare-su      run ksud install/root_stage after loading (no APK install)
   --spray N         fake input_dev spray count (default 512)
-  --state7          use the old selinux_state-7 route instead of AVC-only
+  --state7          use the selinux_state-7 route (--no-avc, default)
+  --avc-only        use the experimental AVC-only route instead of state7
   --sukisu          use the SukiSU 117 LKM/ksud (default)
   --kernelsu        use the KernelSU 117 LKM/ksud control path
   --cleanup         remove the files pushed by this script
@@ -56,6 +57,7 @@ while [ $# -gt 0 ]; do
         --prepare-su) LOAD_ONLY=0; shift ;;
         --spray) [ $# -ge 2 ] || { echo "--spray needs a value" >&2; exit 2; }; SPRAY=$2; shift 2 ;;
         --state7) AVC_ARG=--no-avc; shift ;;
+        --avc-only) AVC_ARG=--avc-only; shift ;;
         --sukisu) MANAGER=sukisu; shift ;;
         --kernelsu) MANAGER=kernelsu; shift ;;
         --cleanup) CLEANUP=1; shift ;;
@@ -158,8 +160,8 @@ sh_ "chmod 755 $DEV_DIR/exp117 $DEV_DIR/ko_patch $DEV_DIR/ksud $DEV_DIR/root_sta
 LOAD_ARG=""
 [ "$LOAD_ONLY" -eq 1 ] && LOAD_ARG="--load-only"
 
-# AVC-only is the default permissive route (single pad report, flags=1,
-# no xp_node write).  --state7 keeps the old selinux_state-7 fallback.
+# selinux_state-7 (--no-avc) is the default route, matching the app and README.
+# --avc-only opts into the experimental AVC-only route.
 set +e
 adbx shell "cd $DEV_DIR && ./exp117 --stage pwn $AVC_ARG --spray $SPRAY $LOAD_ARG" 2>&1 | tee -a "$LOG"
 RC=$?
