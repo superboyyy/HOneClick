@@ -65,20 +65,6 @@ English summary: HOneClick is an unofficial Honor temporary-root research tool w
 
 未提供签名环境变量时，Gradle 只生成 unsigned APK。
 
-> **与 GitHub Releases 保持一致**：当前 GitHub 发布的 APK 使用 Android Debug 证书
-> `CN=Android Debug`（SHA-256 `8a94093ac442383145a02d2eabc93fed48657ea166260716a2d73b4b8c3dd46f`）。
-> 要覆盖升级 GitHub 发布版，必须使用同一个 debug keystore：
->
-> ```bash
-> export HONOR_KEYSTORE="$HOME/.android/debug.keystore"
-> export HONOR_STORE_PASSWORD=android
-> export HONOR_KEY_ALIAS=androiddebugkey
-> export HONOR_KEY_PASSWORD=android
-> ./gradlew assembleSukisuRelease
-> ```
->
-> 换用私有 release key 会导致 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；迁移签名必须先卸载旧包。
-
 ```bash
 export HONOR_KEYSTORE=/absolute/path/to/release.keystore
 export HONOR_STORE_PASSWORD='...'
